@@ -14,7 +14,7 @@
   "schedules": [
     { "id": "due-reminders", "intervalMinutes": 1, "entry": "app/_jobs/due-reminders.ts" }
   ],
-  "repository": "https://github.com/sovereignfs/sovereign-tasks",
+  "repository": "https://github.com/sovereignfs/sovereign-plugin-tasks",
   "compatibility": {
     "minPlatformVersion": "0.19.0"
   }
