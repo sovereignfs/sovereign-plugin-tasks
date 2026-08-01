@@ -65,7 +65,7 @@ The platform has moved past several early assumptions in this draft:
 | `adminOnly`                        | omitted (`false`)                                       |
 | `icon`                             | `icon.svg`                                              |
 | `permissions`                      | `auth:session`, `db:readWrite`                          |
-| `repository`                       | `https://github.com/sovereignfs/sovereign-tasks` |
+| `repository`                       | `https://github.com/sovereignfs/sovereign-plugin-tasks` |
 | `compatibility.minPlatformVersion` | `0.10.0`                                                |
 
 `type: "sovereign"` is required. This plugin is first-party/trusted by the
@@ -88,7 +88,7 @@ Proposed `manifest.json`:
   "shell": "default",
   "icon": "icon.svg",
   "permissions": ["auth:session", "db:readWrite"],
-  "repository": "https://github.com/sovereignfs/sovereign-tasks",
+  "repository": "https://github.com/sovereignfs/sovereign-plugin-tasks",
   "compatibility": {
     "minPlatformVersion": "0.10.0"
   }

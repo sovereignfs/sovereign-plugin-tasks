@@ -23,7 +23,7 @@ See [CONCEPT.md](CONCEPT.md) for design philosophy and [roadmap.md](roadmap.md) 
 ## Installing on a Sovereign instance
 
 ```bash
-sv plugin add https://github.com/sovereignfs/sovereign-tasks
+sv plugin add https://github.com/sovereignfs/sovereign-plugin-tasks
 ```
 
 Then restart the runtime. Tasks will appear in the launcher as **Tasks**.
