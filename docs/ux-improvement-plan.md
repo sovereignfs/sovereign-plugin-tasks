@@ -1404,5 +1404,59 @@ real swipes fired with no gap between them both settling correctly).
 
 No files changed in this plugin's repo for this correction either.
 
+### Second correction — the mount window itself had a related, deeper gap
+
+A third screen recording (user: "It is buggy now than before" persisted even
+after the correction above) showed the same symptom again — `List 4` fully
+loaded, then several consecutive frames completely blank (no title at all,
+not even `SlideHeaderSkeleton`) — but this time live re-testing on the
+iPhone 17 Simulator, including deliberately slower/more realistic drag
+gestures, **could not reproduce it**. That itself was the clue: every
+scripted `touch_path` gesture tried in this investigation (and the one
+before it) reliably moved exactly one slide per gesture, never more —
+meaning the synthetic gestures were never generating enough velocity to
+trigger what native `scroll-snap-type: mandatory` momentum can do on a real
+device: carry the scroll position past an intermediate slide to one two-or-
+more away in a single continuous motion, well before settle-detection's
+debounce window ever fires.
+
+`SwipableMobileCarousel`'s mount window (`prefetchDistance`) was keyed
+_only_ off the settled index — never off where the scroll position actually
+is mid-gesture. During a multi-slide flick, the slide the container has
+already visually scrolled to sits outside that window and was never mounted
+at all (`SwipableMobileCarouselSlide` returns `null`, not even a loading
+skeleton) for the entire debounce window — a real, distinct gap from both
+corrections above, not another instance of either.
+
+**Fixed** (same platform repo, `fix/carousel-live-index-mount-window`,
+`packages/ui` `0.56.4` → `0.56.5`): added `useSnapCarousel`'s `liveIndex` — a
+synchronous, non-debounced read of "which slide the scroll position is
+nearest right now," updated on every `scroll` event — and the mount window
+now unions it with the settled index, so wherever the container currently
+visually is stays mounted regardless of whether that position has been
+confirmed as a real settle yet.
+
+**A regression test for this fix caught a second, independent, previously-
+latent bug**: `scrollToIndex` was never memoized, so every `liveIndex`
+update gave it a new function reference, re-firing a `useEffect` keyed on
+`[clampedActiveIndex, scrollToIndex]` purely because of that reference
+change — which called `scrollToIndex` again, which (now that it also sets
+`liveIndex`) immediately reset `liveIndex` right back to the stale settled
+index, silently undoing the fix on every single scroll event. Harmless
+before `liveIndex` existed (the redundant call just re-issued an already-
+current, no-op `scrollTo()`), but would have made this entire fix inert in
+production, not just caught in tests — the regression test is what
+surfaced it, not manual review. Fixed by wrapping `scrollToIndex` in
+`useCallback`.
+
+Not verified against a live repro of the exact trigger — unlike the two
+corrections above, the underlying multi-slide-flick scenario couldn't be
+reproduced via scripted gestures at all, so this is supported by a targeted
+regression test (mounts a slide 4 positions away before the debounce window
+fires) and architectural reasoning matching the recording, not a
+reproduce-then-fix-then-reproduce-again cycle. Worth the user re-testing
+directly rather than assuming closed. No files changed in this plugin's
+repo.
+
 <!-- Add Task 14, … above this line as new numbered sections, and keep the
      index table at the top in sync. -->
