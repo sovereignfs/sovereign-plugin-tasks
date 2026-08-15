@@ -21,9 +21,20 @@ primitives (`SwipableMobileCarousel`, `useSnapCarousel`, `useCarouselRouteSync`,
 **Plugin areas touched:** `app/_components/MobileTasksCarousel.tsx`,
 `app/_components/TaskItem.tsx`, `app/ListSidebar.tsx`,
 `app/_components/BulkActionBar.tsx`, `app/_components/DueDateControl.tsx`,
-`app/_components/RecurrenceEditor.tsx`\
+`app/_components/RecurrenceEditor.tsx`, `manifest.json` (leg 6)\
+**Platform areas touched (leg 5, cross-repo — see that leg):**
+`packages/manifest/src/schema.ts`, `packages/ui/src/components/Icon/Icon.tsx`,
+`runtime/src/registry.ts`, `runtime/src/mobile-chrome.ts`,
+`runtime/middleware.ts`,
+`runtime/app/(platform)/layout.tsx`,
+`runtime/app/(platform)/_components/MobileNav.tsx`,
+`runtime/app/(platform)/_components/ClientShell.tsx`\
 **Research:** none — this sequences a code-audit finding, not an open design
-question. Leg 4 carries its own small design decision (see that leg).
+question. Leg 4 carries its own small design decision (see that leg). Leg 5
+adds a new platform mechanism decided live in conversation (see that leg's
+Decisions locked entries) rather than through a separate research doc — scope
+is small and the alternatives were already surveyed against the existing
+`shellConfig.mobileHeader`/`mobileFooter` precedent.
 
 ---
 
@@ -75,42 +86,66 @@ on mobile, rather than leaving that as an unreviewed gap.
 - [ ] `docs/ux-improvement-plan.md`'s index table gets a new row (or this
       workstream is cross-referenced from it) so the two planning documents
       don't silently diverge.
+- [ ] A `shell: default` plugin can declare `shellConfig.mobileFooterLeftAction`
+      (`{icon, label, href}`) to override the platform mobile footer's left
+      icon while that plugin is active; the platform's own `CLAUDE.md`
+      version narration, `docs/plugin-development.md`'s manifest reference,
+      and the `MobileChromeOverride`/`ClientShell` refresh-on-crossing
+      mechanism are all updated to match the existing
+      `mobileHeader`/`mobileFooter` precedent.
+- [ ] Tasks' mobile footer left icon opens the Lists slide (carousel index 0)
+      via a dedicated, refresh-safe marker URL — not bare `/tasks`, which
+      keeps its existing first-list cold-load meaning unchanged.
 
 ## Decisions locked
 
-| Decision                                             | Choice                                                                                                                | Rejected alternative and why                                                                                                                                                                                                                                                                                                                                      |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Carousel mechanics                                   | Adopt `SwipableMobileCarousel` + `useSnapCarousel` + `useCarouselRouteSync` from `@sovereignfs/ui`                    | Keep the hand-rolled version — rejected: `SwipableMobileCarousel`'s own doc comment states the current plugin carousel is "measurably laggier" than the already-migrated `sovereign-shopper` equivalent; keeping a local fork also accrues drift risk against the now-canonical implementation.                                                                   |
-| Per-list task cache ownership                        | Stays plugin-local, as glue composing with the DS component (not promoted into the DS)                                | Fold caching into a `SwipableMobileCarouselSlideBody` — rejected: that component's own doc comment explicitly warns against aggregating cross-slide data inside a slide body (it recomputes per-slide-render); this plugin's cache is task-domain business logic, not a reusable DS concern.                                                                      |
-| Task-detail overlay placement                        | Stays a sibling of the carousel (`Sheet` outside `.scroller`), unchanged                                              | Move it inside a slide's children — rejected: this is the exact anti-pattern `SwipableMobileCarousel`'s doc comment calls out; the current implementation already gets this right and migration must not regress it.                                                                                                                                              |
-| Swipe-to-reveal                                      | Replace both `TaskItem` and `ListSidebar` hand-rolled implementations with `useSwipeReveal`                           | Keep either or both hand-rolled — rejected: `useSwipeReveal`'s own doc comment confirms it was extracted from exactly these two duplicated call sites; no behavioral gap between them and the hook was found during audit.                                                                                                                                        |
-| `BulkActionBar` confirm dialog                       | Switch to `ConfirmDialog`                                                                                             | Leave the native `<dialog>` — rejected: contradicts the plugin's own `CLAUDE.md`, which documents `ConfirmDialog` replacing this exact native-`<dialog>` pattern "at every breakpoint," already applied everywhere else in the plugin.                                                                                                                            |
-| Task-row swipe hint storage key                      | New, separate localStorage key (`tasks:seen-task-swipe-hint`), independent of `ListSidebar`'s `tasks:seen-swipe-hint` | Reuse the existing key — rejected: a user who encounters a list row first (slide 0) would silently skip the task-row hint the first time they reach a list of tasks, since one flag would already be set.                                                                                                                                                         |
-| `DueDateControl`/`RecurrenceEditor` mobile treatment | Deferred to leg 4, gated on a wireframe reviewed via the `sv-ui-design` skill before any code changes                 | Decide and implement inline as part of the main migration — rejected: no mockup exists yet, and per the plugin's own established practice (`ListSidebar`'s Popover→Sheet fork was a deliberate, documented UX decision — see "decision D1" in `CLAUDE.md`), a new mobile interaction pattern gets a wireframe pass first, not an ad hoc choice made mid-refactor. |
+| Decision                                                     | Choice                                                                                                                                                                                                                                                  | Rejected alternative and why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Carousel mechanics                                           | Adopt `SwipableMobileCarousel` + `useSnapCarousel` + `useCarouselRouteSync` from `@sovereignfs/ui`                                                                                                                                                      | Keep the hand-rolled version — rejected: `SwipableMobileCarousel`'s own doc comment states the current plugin carousel is "measurably laggier" than the already-migrated `sovereign-shopper` equivalent; keeping a local fork also accrues drift risk against the now-canonical implementation.                                                                                                                                                                                                                                                                                                                                    |
+| Per-list task cache ownership                                | Stays plugin-local, as glue composing with the DS component (not promoted into the DS)                                                                                                                                                                  | Fold caching into a `SwipableMobileCarouselSlideBody` — rejected: that component's own doc comment explicitly warns against aggregating cross-slide data inside a slide body (it recomputes per-slide-render); this plugin's cache is task-domain business logic, not a reusable DS concern.                                                                                                                                                                                                                                                                                                                                       |
+| Task-detail overlay placement                                | Stays a sibling of the carousel (`Sheet` outside `.scroller`), unchanged                                                                                                                                                                                | Move it inside a slide's children — rejected: this is the exact anti-pattern `SwipableMobileCarousel`'s doc comment calls out; the current implementation already gets this right and migration must not regress it.                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Swipe-to-reveal                                              | Replace both `TaskItem` and `ListSidebar` hand-rolled implementations with `useSwipeReveal`                                                                                                                                                             | Keep either or both hand-rolled — rejected: `useSwipeReveal`'s own doc comment confirms it was extracted from exactly these two duplicated call sites; no behavioral gap between them and the hook was found during audit.                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `BulkActionBar` confirm dialog                               | Switch to `ConfirmDialog`                                                                                                                                                                                                                               | Leave the native `<dialog>` — rejected: contradicts the plugin's own `CLAUDE.md`, which documents `ConfirmDialog` replacing this exact native-`<dialog>` pattern "at every breakpoint," already applied everywhere else in the plugin.                                                                                                                                                                                                                                                                                                                                                                                             |
+| Task-row swipe hint storage key                              | New, separate localStorage key (`tasks:seen-task-swipe-hint`), independent of `ListSidebar`'s `tasks:seen-swipe-hint`                                                                                                                                   | Reuse the existing key — rejected: a user who encounters a list row first (slide 0) would silently skip the task-row hint the first time they reach a list of tasks, since one flag would already be set.                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `DueDateControl`/`RecurrenceEditor` mobile treatment         | Deferred to leg 4, gated on a wireframe reviewed via the `sv-ui-design` skill before any code changes                                                                                                                                                   | Decide and implement inline as part of the main migration — rejected: no mockup exists yet, and per the plugin's own established practice (`ListSidebar`'s Popover→Sheet fork was a deliberate, documented UX decision — see "decision D1" in `CLAUDE.md`), a new mobile interaction pattern gets a wireframe pass first, not an ad hoc choice made mid-refactor.                                                                                                                                                                                                                                                                  |
+| Footer left-icon customization mechanism (leg 5)             | A new, generic manifest field (`shellConfig.mobileFooterLeftAction`) any `shell: default` plugin can opt into, resolved server-side the same way `mobileHeader`/`mobileFooter` already are                                                              | (a) Tasks self-renders its own `MobileFooter` (the only existing precedent, `example-mobile-poc`) — rejected: the center Apps launcher and right Search icon depend on shell-only data (live plugin list, admin status, the search index) not exposed to plugins via the SDK; duplicating them would mean reimplementing real shell chrome, against "shell stays generic, plugins are consumers." (b) Special-case the shared `MobileNav` component to recognize `/tasks` specifically — rejected: puts one plugin's identity into shared platform code, the exact anti-pattern the platform's plugin-system architecture forbids. |
+| Reaching platform Home once a plugin overrides the left icon | "Home" becomes the first item in that plugin's Apps Drawer, **only when** `mobileFooterLeftAction` is active for the current route — not added unconditionally to every plugin's drawer                                                                 | Add "Home" to every plugin's drawer unconditionally — rejected: a redundant, unrequested UX change for every plugin that never touches this feature; scoping it to only the plugins that actually lose the footer Home icon keeps the change minimal and its cause legible.                                                                                                                                                                                                                                                                                                                                                        |
+| Left-icon `icon` field validation                            | Manifest schema accepts any non-empty string (no closed enum) — validity checked at render time in `MobileNav` against a new `ICON_NAMES` export from `@sovereignfs/ui`, falling back to a safe default icon with a dev-mode warning on an unknown name | Validate against a closed enum in `packages/manifest`'s zod schema — rejected: would require `packages/manifest` to depend on `packages/ui`'s `IconName` type, pulling a React-dependent design-system package into a schema-validation package meant to stay light and usable outside React contexts (CLI, generate scripts).                                                                                                                                                                                                                                                                                                     |
+| Marker URL for "jump to Lists slide" (leg 6)                 | A dedicated URL Tasks' own `indexForPathname` recognizes via a search param (e.g. `/tasks?view=lists`), read alongside `pathname`                                                                                                                       | Reuse bare `/tasks` — rejected: bare `/tasks` already has an established, deliberate meaning (cold-load → redirect to the user's first list); overloading it to also mean "the Lists index" would silently break that existing behavior for every other bare-`/tasks` entry point (the Launcher tile, a bookmark, a shared link).                                                                                                                                                                                                                                                                                                  |
 
 ## Prerequisites
 
-- None blocking. `@sovereignfs/ui` is consumed as `workspace:*` and already
-  exports `SwipableMobileCarousel`, `SwipableMobileCarouselSlide*`,
+- None blocking legs 1–4. `@sovereignfs/ui` is consumed as `workspace:*` and
+  already exports `SwipableMobileCarousel`, `SwipableMobileCarouselSlide*`,
   `useSnapCarousel`, `useCarouselRouteSync`, and `useSwipeReveal`
   (`packages/ui/src/index.ts`) — no version bump or platform-side work is
   needed before leg 1 starts.
 - Confirm `pnpm install --frozen-lockfile` is clean in the plugin's checkout
-  before cutting leg 1's branch (routine hygiene per the platform CLAUDE.md,
+  before cutting a leg's branch (routine hygiene per the platform CLAUDE.md,
   not specific to this workstream).
+- **Leg 6 is blocked on leg 5's PR merging in the platform monorepo** — leg 6
+  consumes a manifest field that doesn't exist until leg 5 ships. This is a
+  genuine cross-repo dependency, not just a sequencing preference: this
+  plugin's own `pnpm install` won't resolve a `@sovereignfs/manifest`/
+  `@sovereignfs/ui` version carrying the new field until the platform release
+  it lands in is available to this checkout.
 
 ## Legs
 
-| Leg | Name                                   | Files touched                                                                      | Gate? | Done when                                                                                                                                                                                                         |
-| --- | -------------------------------------- | ---------------------------------------------------------------------------------- | ----- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | Carousel migration                     | `MobileTasksCarousel.tsx`, `MobileTasksCarousel.module.css`                        | Yes   | Carousel renders via `SwipableMobileCarousel`/`useCarouselRouteSync`; all existing carousel behavior (prefetch, cache, detail sheet, cold-load redirect, resize realign) verified unchanged on a mobile viewport. |
-| 2   | Swipe-to-reveal consolidation          | `TaskItem.tsx`, `TaskItem.module.css`, `ListSidebar.tsx`, `ListSidebar.module.css` | No    | Both components use `useSwipeReveal`; no local pointer-math remains; swipe-reveal behavior unchanged for both list rows and task rows.                                                                            |
-| 3   | Consistency fixes                      | `BulkActionBar.tsx`, `BulkActionBar.module.css`, `TaskItem.tsx` (hint only)        | No    | `BulkActionBar` uses `ConfirmDialog`; task rows get a first-run swipe hint on their own storage key.                                                                                                              |
-| 4   | Due date / recurrence mobile treatment | `DueDateControl.tsx`, `RecurrenceEditor.tsx` (+ CSS if the decision calls for it)  | Yes   | A wireframe is reviewed and a decision is recorded; code changes (if any) match that decision exactly.                                                                                                            |
+| Leg | Name                                             | Files touched                                                                                                                                                                                                                                                                                           | Gate? | Done when                                                                                                                                                                                                                                                                                                                                                                        |
+| --- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Carousel migration                               | `MobileTasksCarousel.tsx`, `MobileTasksCarousel.module.css`                                                                                                                                                                                                                                             | Yes   | Carousel renders via `SwipableMobileCarousel`/`useCarouselRouteSync`; all existing carousel behavior (prefetch, cache, detail sheet, cold-load redirect, resize realign) verified unchanged on a mobile viewport.                                                                                                                                                                |
+| 2   | Swipe-to-reveal consolidation                    | `TaskItem.tsx`, `TaskItem.module.css`, `ListSidebar.tsx`, `ListSidebar.module.css`                                                                                                                                                                                                                      | No    | Both components use `useSwipeReveal`; no local pointer-math remains; swipe-reveal behavior unchanged for both list rows and task rows.                                                                                                                                                                                                                                           |
+| 3   | Consistency fixes                                | `BulkActionBar.tsx`, `BulkActionBar.module.css`, `TaskItem.tsx` (hint only)                                                                                                                                                                                                                             | No    | `BulkActionBar` uses `ConfirmDialog`; task rows get a first-run swipe hint on their own storage key.                                                                                                                                                                                                                                                                             |
+| 4   | Due date / recurrence mobile treatment           | `DueDateControl.tsx`, `RecurrenceEditor.tsx` (+ CSS if the decision calls for it)                                                                                                                                                                                                                       | Yes   | A wireframe is reviewed and a decision is recorded; code changes (if any) match that decision exactly.                                                                                                                                                                                                                                                                           |
+| 5   | **[Platform repo]** Footer left-action mechanism | `packages/manifest/src/schema.ts`, `packages/ui/src/components/Icon/Icon.tsx` (+ `packages/ui/src/index.ts`), `runtime/src/registry.ts`, `runtime/src/mobile-chrome.ts`, `runtime/middleware.ts`, `runtime/app/(platform)/layout.tsx`, `MobileNav.tsx`, `ClientShell.tsx`, `docs/plugin-development.md` | Yes   | Any `shell: default` plugin can declare `shellConfig.mobileFooterLeftAction`; the resolved icon/label/href renders in the shared mobile footer's left slot while that plugin is active, with Home relocated to that plugin's Drawer as its first item; visibility-crossing refresh logic (`ClientShell`) covers it the same way it already covers `mobileHeader`/`mobileFooter`. |
+| 6   | **[This repo]** Tasks consumes the mechanism     | `manifest.json`, `app/_components/MobileTasksCarousel.tsx`                                                                                                                                                                                                                                              | No    | Tasks' manifest declares `mobileFooterLeftAction`; tapping the footer's left icon while in Tasks lands deterministically on the Lists slide (carousel index 0), refresh-safe, without disturbing bare `/tasks`'s existing cold-load behavior.                                                                                                                                    |
 
 Each leg is one branch, one draft PR, one review gate. The agent runs
 uninterrupted within a leg and stops at its end, per the platform's leg
-contract (`docs/workstreams/README.md` in the platform repo).
+contract (`docs/workstreams/README.md` in the platform repo). Legs 5 and 6
+are **cross-repo**: leg 5's branch/PR live in the platform monorepo
+(`pods/p1` root), leg 6's in this plugin's own repo.
 
 ## Leg detail
 
@@ -281,6 +316,125 @@ UX question (e.g. whether the calendar/recurrence editor should become its
 own full-page mobile view rather than a Sheet) — stop and let that become
 its own follow-up rather than scope-creeping this leg.
 
+### Leg 5 — [Platform repo] Footer left-action mechanism
+
+**Files:** `packages/manifest/src/schema.ts`,
+`packages/ui/src/components/Icon/Icon.tsx` (+ `packages/ui/src/index.ts`),
+`runtime/src/registry.ts`, `runtime/src/mobile-chrome.ts`,
+`runtime/middleware.ts`, `runtime/app/(platform)/layout.tsx`,
+`runtime/app/(platform)/_components/MobileNav.tsx`,
+`runtime/app/(platform)/_components/ClientShell.tsx`,
+`docs/plugin-development.md`
+
+**Why this leg exists:** the mobile footer's left icon (currently hardcoded
+"Home") is shared shell chrome, not owned by any plugin — there is no
+sanctioned way today for a plugin to change what it does while that plugin is
+active. Discovered mid-workstream while trying to make Tasks' left icon open
+its own Lists slide instead of navigating away to the platform Launcher.
+
+**Technical notes:**
+
+- Mirrors the existing `shellConfig.mobileHeader`/`mobileFooter` (RFC 0075)
+  plumbing end to end — same middleware→header→layout→component resolution
+  path, same `MobileChromeOverride`/`mobile-chrome.ts` resolver pattern, same
+  `ClientShell` refresh-on-crossing mechanism. Someone reading this leg's diff
+  should recognize every file as "the same shape as the mobileHeader/
+  mobileFooter change," not a new pattern.
+- New manifest field: `shellConfig.mobileFooterLeftAction?: { icon: string;
+label: string; href: string }`, `.strict()`, valid only when `shell` is
+  `'default'` (a `.refine`, matching the existing `mobileHeader`/`mobileFooter`
+  refines exactly).
+- `icon` is **not** validated against a closed enum in the manifest schema
+  (see Decisions locked — keeps `packages/manifest` free of a `packages/ui`
+  dependency). Instead, export `ICON_NAMES = Object.keys(ICONS) as
+IconName[]` from `packages/ui/src/components/Icon/Icon.tsx` (hand-maintained
+  file, not the generated `icons/index.ts`) and re-export from
+  `packages/ui/src/index.ts`. `MobileNav` checks the resolved icon name
+  against `ICON_NAMES` and falls back to a safe default (`house`) with a
+  dev-mode `console.warn` on a miss, rather than risking an undefined `Svg`
+  render crash from an unrecognized name in a plugin's manifest.
+- `runtime/src/registry.ts`: extend `MobileChromeOverride` with an optional
+  `footerLeftAction`; broaden `getMobileChromeConfig`'s filter to also
+  include a plugin that declares `mobileFooterLeftAction` even when its
+  `mobileHeader`/`mobileFooter` are both left at their default `true` — the
+  current filter only includes visibility-deviating plugins, which would
+  silently drop a plugin that _only_ overrides the left icon.
+- `runtime/src/mobile-chrome.ts`: add a `mobileFooterLeftAction(pathname,
+config)` resolver returning the matched override or `null`, mirroring
+  `mobileHeaderVisible`/`mobileFooterVisible`'s exact shape (same
+  `underPrefix` matching).
+- `runtime/middleware.ts`: when `currentPlugin?.shellConfig?.
+mobileFooterLeftAction` is present, `JSON.stringify` it into a new request
+  header (`x-sovereign-mobile-footer-left-action`), same spot as the existing
+  `x-sovereign-mobile-header`/`-footer` header-setting.
+- `layout.tsx`: read and `JSON.parse` that header (guarded — a malformed
+  header must never crash the shell), pass the result as a new
+  `footerLeftAction` prop to `<MobileNav>`.
+- `MobileNav.tsx`: when `footerLeftAction` is present, render it as the sole
+  `leftIcons` entry (replacing the hardcoded Home button) via `onClick` +
+  `router.push` (matching the existing Home icon's own client-side-nav
+  pattern, not a bare `href`/`<a>`) — **and** prepend a "Home" entry to the
+  Apps Drawer's plugin grid, first item, only in this branch (see Decisions
+  locked — not unconditional for every plugin).
+- `ClientShell.tsx`: extend the pathname-crossing comparison to also diff
+  `mobileFooterLeftAction(pathname, config)` between the previous and current
+  pathname, forcing `router.refresh()` on a change — same reasoning as the
+  existing header/footer-visibility diff (a client-side nav between two
+  plugins with different configs must not keep rendering the previous
+  route's already-resolved chrome).
+- Docs: extend `docs/plugin-development.md`'s manifest reference table row
+  for `shellConfig` and add a worked example alongside the existing "Mobile
+  header/footer toggle (RFC 0075)" section — same doc, same section, not a
+  new top-level heading, since this is an extension of that existing toggle
+  family, not a separate concept.
+- Version: platform root `package.json` minor bump (new manifest field +
+  shell behavior = `feat`), with the usual narrated `CLAUDE.md` version note.
+
+**Do not proceed if:** wiring the active plugin's `shellConfig` into
+`MobileNav` turns out to need broader surgery than adding one prop through
+the existing `layout.tsx`→`MobileNav` call — e.g. if `MobileNav` needs to
+become aware of the full plugin registry rather than just the current route's
+resolved override. If so, stop and re-scope rather than growing this leg into
+a larger refactor of the mobile shell's data flow.
+
+### Leg 6 — [This repo] Tasks consumes the mechanism
+
+**Files:** `manifest.json`, `app/_components/MobileTasksCarousel.tsx`
+
+**Why this leg is last:** blocked on leg 5 merging and releasing in the
+platform monorepo (see Prerequisites) — nothing here is buildable until the
+manifest field exists.
+
+**Technical notes:**
+
+- `manifest.json`: add
+  `"shellConfig": { "mobileFooterLeftAction": { "icon": "menu", "label":
+"Lists", "href": "/tasks?view=lists" } }`. Icon choice: the curated
+  `@sovereignfs/ui` icon set (`packages/ui/src/components/Icon/icons/
+index.ts`) has no dedicated "list" glyph — `menu` (hamburger) is the closest
+  semantic fit without adding a new icon to the design system as a side
+  effect of this leg (out of scope; flag as a follow-up if it reads poorly in
+  practice).
+- `MobileTasksCarousel.tsx`'s `indexForPathname`/`pathForIndex` currently
+  only look at `pathname` — extend `indexForPathname` to also accept the
+  parsed search params (already available via the component's own
+  `useSearchParams()`) and recognize `view=lists` as index 0, distinct from
+  bare `/tasks`'s existing "redirect to first list" cold-load fallback (see
+  Decisions locked for why bare `/tasks` itself is not repurposed). Landing
+  on index 0 this way must **not** trigger the `didSyncInitialUrl` cold-load
+  effect (that effect only fires once, keyed off bare `/tasks` specifically,
+  and should stay untouched).
+- `pathForIndex(0, lists)` (used when the user _swipes_ to slide 0) stays
+  returning bare `/tasks`, unchanged — this leg only adds a second, marker-
+  URL entry point _into_ index 0; it does not change what URL a swipe settle
+  produces. The two paths (`/tasks` via swipe-settle, `/tasks?view=lists` via
+  the footer icon) both resolve to index 0 on load; only the swipe-settle one
+  keeps its pre-existing "refresh lands you back on the first list" quirk
+  (already documented, not something this leg touches).
+
+**Do not proceed if:** nothing — this is a small, mechanical consumption of
+an already-designed mechanism.
+
 ## Risks
 
 - **Resolved during leg 1, documented here for visibility**: `SwipableMobileCarousel`/`useSnapCarousel` expose no imperative "re-snap to the current index" hook, so the old orientation-resize realignment effect (a `window` `resize` listener that re-computed `scrollLeft`) has no clean equivalent without reaching into the DS component's internal DOM structure. Dropped rather than hacked around — a rotation may leave scroll position fractionally off-boundary until the next swipe, cosmetic only (active slide/URL stay correct). If this proves disruptive in practice, the fix belongs upstream in `SwipableMobileCarousel` (e.g. an internal `ResizeObserver` that re-calls its own `scrollToIndex`), not as a plugin-local workaround.
@@ -306,6 +460,16 @@ its own follow-up rather than scope-creeping this leg.
   refactor leg" and implemented without the wireframe step actually
   happening, it violates the plugin's own established design process
   (`sv-ui-design`) for exactly this class of change.
+- Leg 5 is platform-repo work reviewed and released independently of this
+  plugin — its version, changelog, and merge timeline are governed by the
+  platform monorepo's own conventions, not this document. This workstream
+  doc tracks it for continuity (it originated from this workstream's own
+  leg-1 follow-up conversation) but does not control its release.
+- Leg 6 has a hard dependency on leg 5's platform release actually reaching
+  this plugin's `@sovereignfs/manifest`/`@sovereignfs/ui` versions — starting
+  leg 6 against an unreleased leg 5 would fail at `pnpm install` or, worse,
+  silently no-op if the manifest field is simply ignored by an older platform
+  build rather than rejected.
 
 ## Kill criteria
 
@@ -320,10 +484,16 @@ its own follow-up rather than scope-creeping this leg.
 - Nothing about this workstream is all-or-nothing: each leg ships
   independently-reviewable, coherent value, and any subset that lands is
   strictly better than the state audited at the start.
+- If leg 5's design turns out to need broader surgery than described (see
+  that leg's own "do not proceed if"), it stops and is re-scoped as its own,
+  separate platform-repo item — it does not block legs 1–4, which have no
+  dependency on it. Leg 6 simply stays undone until leg 5 (in whatever
+  eventual shape) actually ships.
 
 ## Changelog
 
-| Version | Date        | Change                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| ------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0.1     | August 2026 | Initial draft, from the mobile UI audit.                                                                                                                                                                                                                                                                                                                                                                                     |
-| 0.2     | August 2026 | Leg 1 implemented and manually verified (`feat/mobile-ds-primitive-migration-leg-1`, plugin `v0.16.1`). Dropped the old resize-realignment effect rather than reimplementing it against the DS component's public API — no imperative re-snap hook is exposed; noted as a known, accepted, cosmetic-only gap in the plugin's `CLAUDE.md` and this doc's Risks section instead of working around it with a DOM-reaching hack. |
+| Version | Date        | Change                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0.1     | August 2026 | Initial draft, from the mobile UI audit.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| 0.2     | August 2026 | Leg 1 implemented and manually verified (`feat/mobile-ds-primitive-migration-leg-1`, plugin `v0.16.1`). Dropped the old resize-realignment effect rather than reimplementing it against the DS component's public API — no imperative re-snap hook is exposed; noted as a known, accepted, cosmetic-only gap in the plugin's `CLAUDE.md` and this doc's Risks section instead of working around it with a DOM-reaching hack.                                                                                                                                                                                                                                                                                        |
+| 0.3     | August 2026 | Added legs 5–6: a new cross-repo mobile-footer left-icon customization mechanism, prompted by wanting Tasks' footer left icon to open the Lists slide instead of the platform Launcher. Discovered mid-workstream that no such mechanism exists today (`shellConfig` only has `mobileHeader`/`mobileFooter` visibility booleans) and that the only precedent (`example-mobile-poc` self-rendering its own footer) would require duplicating shell-only chrome (the Apps drawer, the search overlay) not exposed to plugins — designed a generic, `mobileHeader`/`mobileFooter`-shaped manifest field instead, scoped as platform-repo work (leg 5) with this plugin's own consumption split into a dependent leg 6. |
