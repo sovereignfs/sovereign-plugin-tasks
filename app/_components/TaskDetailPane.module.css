@@ -63,6 +63,11 @@
   padding: var(--sv-space-5) var(--sv-space-5) var(--sv-space-3);
   background-color: inherit;
   border-bottom: 1px solid var(--sv-color-border);
+  /* Same WebKit momentum-scroll re-tiling quirk as TasksPane.module.css's
+     .stickyHeader (see its own comment) — a position: sticky element with
+     no compositing layer of its own can go stale/blank during a fast
+     scroll on iOS Safari. translateZ(0) promotes it to its own layer. */
+  transform: translateZ(0);
 }
 
 .title {
