@@ -2,14 +2,20 @@
   "schemaVersion": 1,
   "id": "fs.sovereign.tasks",
   "name": "Tasks",
-  "version": "0.16.0",
+  "version": "0.16.1",
   "description": "A minimal, privacy-first task manager.",
   "type": "sovereign",
   "runtime": "native",
   "routePrefix": "/tasks",
   "shell": "default",
   "icon": "icon.svg",
-  "permissions": ["auth:session", "db:readWrite", "notifications:send", "data:export", "data:import"],
+  "permissions": [
+    "auth:session",
+    "db:readWrite",
+    "notifications:send",
+    "data:export",
+    "data:import"
+  ],
   "schedules": [
     { "id": "due-reminders", "intervalMinutes": 1, "entry": "app/_jobs/due-reminders.ts" }
   ],
