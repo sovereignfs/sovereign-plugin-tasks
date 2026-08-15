@@ -5,10 +5,25 @@
    which already avoids that same property for the same documented reason.
    Only the wrapper and the loading placeholder stay plugin-local. */
 
+/* Flex column, not a plain stacked block: SwipableMobileCarousel (wrapped in
+   .carouselArea below) already fills 100% of whatever height it's given, so
+   without an explicit flex layout the self-rendered MobileFooter after it
+   ends up pushed below the fold and clipped by the shell's own
+   `overflow: hidden` (layout.module.css's .shell) — invisible, not just
+   visually wrong. .carouselArea takes the remaining space (flex: 1,
+   min-height: 0 so it can actually shrink instead of overflowing), the
+   footer keeps its natural height at the bottom. */
 .wrap {
   position: relative;
   height: 100%;
   width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.carouselArea {
+  flex: 1;
+  min-height: 0;
 }
 
 .slideLoading {
@@ -18,4 +33,32 @@
   height: 100%;
   color: var(--sv-color-text-subtle);
   font-size: var(--sv-font-size-sm);
+}
+
+/* Matches the platform shell's own drawer icon sizing
+   (runtime/app/(platform)/_components/MobileNav.module.css's
+   .drawerGridIconImg) — the self-rendered Apps drawer above should look
+   identical to the platform's own, just plugin-local. */
+.appIcon {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+
+:global([data-theme='dark']) .appIcon {
+  filter: invert(1);
+}
+
+/* Matches the platform shell's own footer launcher-icon sizing
+   (runtime/app/(platform)/_components/MobileNav.module.css's .navIcon) —
+   the self-rendered footer's center Apps button should look identical to
+   the platform's own, not just similar. */
+.launcherIcon {
+  width: var(--sv-icon-size-md);
+  height: var(--sv-icon-size-md);
+  object-fit: contain;
+}
+
+:global([data-theme='dark']) .launcherIcon {
+  filter: invert(1);
 }
