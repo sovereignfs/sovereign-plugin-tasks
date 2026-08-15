@@ -21,7 +21,7 @@ same surfaces in the same repo. Add new tasks as numbered sections; statuses:
 | 10  | Investigate task-detail click race (wrong/no detail opens)                | sovereign-tasks                                          | closed — not a bug                                                |
 | 11  | Tighten `SwipableMobileCarouselDots` spacing for many-list instances      | **platform** (`sovereignfs/sovereign`) + sovereign-tasks | shipped ✅                                                        |
 | 12  | Fix invisible carousel dots; investigate swipe instability + header load  | **platform** (`sovereignfs/sovereign`)                   | shipped ✅ (dots) + drag-vs-swipe conflict still open — see below |
-| 13  | Fix carousel auto-swiping back to the previous slide                      | **platform** (`sovereignfs/sovereign`)                   | shipped ✅ (draft PR)                                             |
+| 13  | Fix carousel auto-swiping back to the previous slide                      | **platform** (`sovereignfs/sovereign`)                   | shipped ✅, regression found + corrected — see below              |
 
 ---
 
@@ -1245,7 +1245,8 @@ than filed as a silent TODO, since it affects a shipped, documented feature.
 
 ## Task 13 — Fix carousel auto-swiping back to the previous slide
 
-**Status:** shipped ✅ (platform, draft PR). No plugin code changed.
+**Status:** shipped ✅, then found regressed by the user's own live testing
+and corrected — see "Correction" below. No plugin code changed.
 
 ### Problem
 
@@ -1357,6 +1358,51 @@ No files changed in this plugin's repo for this task.
    dev server on the port the user had been testing against was no longer
    reachable by the time the fix was ready. Flagged to the user; worth a
    fresh live pass on the next session before considering this fully closed.
+
+### Correction — the fix above shipped a real regression
+
+The live re-verification flagged as missing in step 4 above turned out to be
+load-bearing: doing it (against a fresh dev server, once one was reachable)
+surfaced a genuine regression in the fix itself, and the user independently
+reported it with a second screen recording ("It is buggy now than before")
+before that testing had even finished — the same `ffmpeg` scene-detection
+approach on that recording showed an ~8–10s fully blank carousel stretch,
+worse than anything in the original report.
+
+**Root cause of the regression:** the shipped fix gated settle-detection on
+"was there a touch/wheel/pointer event within `debounceMs * 2` (240ms) of
+settle-check time." That fixed window doesn't hold up under real momentum
+scrolling — a fast flick's native snap-correction can keep producing `scroll`
+events for well over 240ms with zero further touch input, so the window
+silently dropped the settle. That left `activeIndex` stuck on the old slide
+while the container had already scrolled to the new one — and because
+`SwipableMobileCarousel`'s mount window (`prefetchDistance`) is keyed off
+that same stale index, the slide actually on screen could fall outside it
+and unmount entirely: a fully blank carousel with no title, no spinner,
+nothing — recoverable only by a full page reload, not just a bad swipe.
+Reproduced on demand with **two real swipes fired back-to-back on the
+iPhone 17 Simulator** (no artificial zero-delay stress case needed — an
+ordinarily fast double-swipe was enough).
+
+**Fixed** (same platform repo, `fix/carousel-momentum-settle-regression`,
+`packages/ui` `0.56.2` → `0.56.3`): replaced the fixed-slack-window model
+with a "trusted run" model. A run of `scroll` events (no gap ≥ `debounceMs`
+between consecutive ones — i.e. an unbroken stream, which is exactly what
+momentum scrolling produces) is trusted if a real gesture happened within
+`debounceMs` of the run's _first_ event; that trust then holds for the run's
+entire duration no matter how long momentum continues afterward with no
+further touch input. A later real gesture can also upgrade an already-
+in-flight untrusted run (covers a real swipe starting while an earlier,
+unrelated drift-triggered run's debounce timer is still pending).
+
+**Verified against the exact live repro that broke the previous fix** — two,
+then three, rapid real swipes fired back-to-back on the iPhone 17 Simulator,
+not just scripted/synthetic events — before considering this closed, in
+addition to two new unit tests (a trusted run held open across 400ms of
+momentum-only scrolling, well past the old fix's 240ms cap; two independent
+real swipes fired with no gap between them both settling correctly).
+
+No files changed in this plugin's repo for this correction either.
 
 <!-- Add Task 14, … above this line as new numbered sections, and keep the
      index table at the top in sync. -->
