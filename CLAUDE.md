@@ -467,7 +467,28 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.18.2** (`0.18.1` → `0.18.2` fixes a duplicate
+Current version: **0.18.3** (`0.18.2` → `0.18.3` fixes add-task appearing to
+do nothing on mobile: typing a task and pressing Enter didn't clear the
+input, update the count, or show the row until some unrelated navigation
+happened to re-render the list — the task was actually being created the
+whole time. Root cause was not a missing optimistic update:
+`TasksPane.tsx`'s `handleAddTask` already had one (`useOptimistic`, same
+mechanism `toggleComplete`/star use), but that overlay is discarded the
+moment its enclosing transition settles, reverting to whatever
+`initialTasks` prop is current at that point. On desktop `router.refresh()`
+re-runs `page.tsx` synchronously with the transition, so fresh
+`initialTasks` is ready in time; on mobile, `MobileTasksCarousel` keeps its
+own decoupled task cache and only re-fetches asynchronously in response to
+`refreshSignal`, so the transition settles (discarding the optimistic
+overlay) before that refetch delivers the new task — the exact class of bug
+`onTaskFieldPatch` (toggle/star) already exists to prevent, just not
+extended to the add path. Fixed with a new `onTaskAdded` prop on
+`TasksPane`, called synchronously alongside the optimistic dispatch, and a
+matching `addTask` callback on `MobileTasksCarousel` that patches its own
+cache immediately. Verified live: count updated 16 → 17 instantly with no
+reload, and the new row was independently confirmed as a real (non-optimistic-id)
+database row afterward. See `docs/ux-improvement-plan.md` Task 9 for the
+full account. `0.18.1` → `0.18.2` fixes a duplicate
 server-action burst on mobile: loading a list page fired ~10 near-identical
 `getTasks`/`getOrCreatePrefs`/`getStarredTasks` calls instead of the expected
 5 (active slide + 2 neighbors). Root cause: `MobileTasksCarousel.tsx`'s

@@ -58,6 +58,20 @@ interface Props {
    */
   onTaskFieldPatch?: (taskId: string, patch: Partial<TaskRow>) => void;
   /**
+   * Called synchronously with the optimistic task the moment handleAddTask
+   * fires — same reason and same pattern as onTaskFieldPatch above (see its
+   * doc comment). Without this, a task added on mobile appears to do
+   * nothing: this component's own useOptimistic overlay is discarded the
+   * moment the enclosing transition (createTask + router.refresh()) settles,
+   * which happens before MobileTasksCarousel's own decoupled refetch
+   * (triggered by that same router.refresh(), but asynchronous) delivers a
+   * fresh initialTasks prop containing the new task — a gap of one round
+   * trip where neither the optimistic value nor the real one includes it.
+   * Only provided by MobileTasksCarousel; absent on desktop's page.tsx, same
+   * as onTaskFieldPatch.
+   */
+  onTaskAdded?: (task: TaskRow) => void;
+  /**
    * Renders the virtual "Starred" view (TSK-28) instead of a real list:
    * header/menu strip to Sort by only (no rename/colour/delete-list/
    * delete-completed), no add-task row, drag-reorder always off (no manual
@@ -100,6 +114,7 @@ export default function TasksPane({
   listId,
   selectedTaskId,
   onTaskFieldPatch,
+  onTaskAdded,
   virtualList,
 }: Props) {
   const router = useRouter();
@@ -438,25 +453,24 @@ export default function TasksPane({
     const trimmed = newTitle.trim();
     if (!trimmed) return;
     setNewTitle('');
+    const optimisticTask: TaskRow = {
+      id: `optimistic-${Date.now()}`,
+      listId,
+      title: trimmed,
+      notes: null,
+      completedAt: null,
+      parentId: null,
+      favorite: false,
+      dueDate: null,
+      dueTime: null,
+      recurrenceRule: null,
+      createdAt: Math.floor(Date.now() / 1000),
+      subtaskCount: 0,
+      subtaskDoneCount: 0,
+    };
     startTransition(async () => {
-      applyTaskAction({
-        type: 'add',
-        task: {
-          id: `optimistic-${Date.now()}`,
-          listId,
-          title: trimmed,
-          notes: null,
-          completedAt: null,
-          parentId: null,
-          favorite: false,
-          dueDate: null,
-          dueTime: null,
-          recurrenceRule: null,
-          createdAt: Math.floor(Date.now() / 1000),
-          subtaskCount: 0,
-          subtaskDoneCount: 0,
-        },
-      });
+      applyTaskAction({ type: 'add', task: optimisticTask });
+      onTaskAdded?.(optimisticTask);
       await createTask(listId, trimmed);
       router.refresh();
     });
@@ -483,24 +497,20 @@ export default function TasksPane({
     ...(!filterFitsInline
       ? ([
           { type: 'label', label: 'Filter' },
-          ...FILTERS.map(
-            (f): MenuEntry => ({
-              label: f.label,
-              checked: filter === f.value,
-              onSelect: () => setFilter(f.value),
-            }),
-          ),
+          ...FILTERS.map((f): MenuEntry => ({
+            label: f.label,
+            checked: filter === f.value,
+            onSelect: () => setFilter(f.value),
+          })),
           { type: 'separator' },
         ] satisfies MenuEntry[])
       : []),
     { type: 'label', label: 'Sort by' },
-    ...sortOptions.map(
-      (opt): MenuEntry => ({
-        label: opt.label,
-        checked: sortBy === opt.value,
-        onSelect: () => setSortBy(opt.value),
-      }),
-    ),
+    ...sortOptions.map((opt): MenuEntry => ({
+      label: opt.label,
+      checked: sortBy === opt.value,
+      onSelect: () => setSortBy(opt.value),
+    })),
     // Rename/colour/delete-list/delete-completed are all real-list-only
     // operations the virtual Starred view has no meaning for — it owns no
     // list row and no tasks of its own to delete.
