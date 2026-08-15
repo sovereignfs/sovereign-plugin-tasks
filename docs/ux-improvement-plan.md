@@ -18,7 +18,7 @@ same surfaces in the same repo. Add new tasks as numbered sections; statuses:
 | 7   | De-dupe `loadList` to stop duplicate server-action bursts on mobile       | sovereign-tasks                        | shipped ✅            |
 | 8   | Fix `sdk.db.getClient()` returning the platform DB from schedule handlers | **platform** (`sovereignfs/sovereign`) | shipped ✅ (draft PR) |
 | 9   | Fix add-task appearing to do nothing on mobile                            | sovereign-tasks                        | shipped ✅            |
-| 10  | Investigate task-detail click race (wrong/no detail opens)                | sovereign-tasks                        | planned               |
+| 10  | Investigate task-detail click race (wrong/no detail opens)                | sovereign-tasks                        | closed — not a bug    |
 | 11  | Tighten `SwipableMobileCarouselDots` spacing for many-list instances      | **platform** (`sovereignfs/sovereign`) | planned (deferred)    |
 
 ---
@@ -999,37 +999,54 @@ add-row, so it never needs this).
 
 ## Task 10 — Investigate task-detail click race (wrong/no detail opens)
 
-**Status:** planned — root cause not yet confirmed, needs an isolated repro.
-**Repo:** sovereign-tasks (pending investigation; may turn out to be a
-platform/DS issue if it reproduces outside this plugin — TBD).
+**Status:** closed — not an app bug. Root-caused to the browser-automation
+tooling used for testing, not `sovereign-tasks`.
+**Repo:** sovereign-tasks (investigation only — no code change).
 
 ### Problem
 
-Reproduced twice during live testing, in different shapes: once as "click a
-task row → a _different_ task's detail opens" (traced to a real mismatched
-href/task-id at the time, not a coordinate/measurement artifact), once as
-"click a task row → nothing opens at all," with `net::ERR_ABORTED` network
-entries visible in the same window as Task 7's request burst.
+Reproduced twice during earlier live testing, in different shapes: once as
+"click a task row → a _different_ task's detail opens," once as "click a
+task row → nothing opens at all." Re-tested after Task 7 shipped, per that
+task's own note, using a clean single-click repro with no other requests in
+flight — **still reproduced both shapes**, ruling out Task 7's duplicate-burst
+bug as the cause.
 
-### Current state
+### Root cause (found via direct event instrumentation, not the app)
 
-Not yet root-caused. `TasksPane.tsx` keys every row by `task.id` (not array
-index), and `TaskItem`'s detail `<Link>` href is built from that same task
-object — no index-based bug found there. The detail-open effect in
-`MobileTasksCarousel.tsx` (`~294-317`) has a proper `cancelled`-flag cleanup
-keyed on `taskIdParam`, so it isn't itself unguarded against rapid param
-changes. Task 7's fix (de-duping `loadList`, now shipped on `main`) removes
-one source of concurrent in-flight requests that could have been racing a
-click's own navigation — this needs to be re-tested now that Task 7 has
-shipped, since it may turn out to have been a symptom rather than a separate
-bug.
+Attached capture-phase listeners for `pointerdown`/`mousedown`/`pointerup`/
+`mouseup`/`click` directly on `document` and drove the same click two ways:
 
-### Next step (not yet done)
+- The test tool's `ref`-based click (resolves a target from a previously
+  captured accessibility-tree snapshot): **zero events fired anywhere in the
+  document** — not suppressed, not `defaultPrevented`, simply never
+  dispatched. Consistent with a stale/invalid backend element reference
+  after the tree had shifted since the snapshot was taken, not anything
+  `sovereign-tasks`' own code could see or guard against.
+- The same click as a real event sequence at **raw screen coordinates**
+  (bypassing the tool's ref-resolution step entirely): all five events fired
+  cleanly, `defaultPrevented: false` throughout, correct navigation to the
+  correct task's `?task=<id>` every time — independently confirmed against
+  the live database (`tasks_items` row `86792e1a…` → title `"dasd"`) matching
+  exactly what rendered in the detail pane.
 
-A clean, single-click, network-correlated repro: one task click, nothing else
-in flight, full network log captured around it. If it still reproduces after
-Task 7, escalate with the captured repro rather than guessing further at the
-cause.
+No dnd-kit interference, no `TasksPane`/`MobileTasksCarousel` state issue,
+no index-vs-id mismatch — every failure traced to the click never reaching
+the DOM at all via one specific tool invocation shape, and every success
+confirmed correct app behavior end to end when the click was real. An
+earlier "wrong task opened" observation was very likely the same
+ref-resolution issue compounded by a screenshot-pixel-vs-CSS-pixel
+coordinate mismatch when manually estimating click coordinates from a
+screenshot — a mistake made during that earlier investigation, not a defect
+in this plugin.
+
+### Why this doesn't need a plugin-side fix
+
+`TasksPane.tsx` keys every row by `task.id` (not array index), and
+`TaskItem`'s detail `<Link>` href is built from that same task object — the
+code path was never implicated by any of the above. Nothing in this
+plugin's control can compensate for a testing tool failing to dispatch an
+event in the first place.
 
 ---
 
