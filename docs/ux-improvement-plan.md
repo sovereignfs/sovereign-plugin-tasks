@@ -7,19 +7,20 @@ then implemented; one branch/PR may cover several tasks when they touch the
 same surfaces in the same repo. Add new tasks as numbered sections; statuses:
 **planned** · **in progress** · **shipped** · **dropped**.
 
-| #   | Task                                                                      | Repo                                                     | Status                |
-| --- | ------------------------------------------------------------------------- | -------------------------------------------------------- | --------------------- |
-| 1   | Long-press drag-reorder (lists page + task rows)                          | sovereign-tasks                                          | shipped ✅            |
-| 2   | Mark notifications read on click (bell panel)                             | **platform** (`sovereignfs/sovereign`)                   | shipped ✅            |
-| 3   | Virtual "Starred" list (all prioritized tasks in one view)                | sovereign-tasks                                          | shipped ✅            |
-| 4   | Per-plugin push notification icon                                         | **platform** (`sovereignfs/sovereign`)                   | shipped ✅            |
-| 5   | JSON export/import (account-level data portability)                       | sovereign-tasks                                          | shipped ✅            |
-| 6   | Sticky list header + add-task row while scrolling                         | sovereign-tasks                                          | shipped ✅            |
-| 7   | De-dupe `loadList` to stop duplicate server-action bursts on mobile       | sovereign-tasks                                          | shipped ✅            |
-| 8   | Fix `sdk.db.getClient()` returning the platform DB from schedule handlers | **platform** (`sovereignfs/sovereign`)                   | shipped ✅ (draft PR) |
-| 9   | Fix add-task appearing to do nothing on mobile                            | sovereign-tasks                                          | shipped ✅            |
-| 10  | Investigate task-detail click race (wrong/no detail opens)                | sovereign-tasks                                          | closed — not a bug    |
-| 11  | Tighten `SwipableMobileCarouselDots` spacing for many-list instances      | **platform** (`sovereignfs/sovereign`) + sovereign-tasks | shipped ✅            |
+| #   | Task                                                                      | Repo                                                     | Status                        |
+| --- | ------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------- |
+| 1   | Long-press drag-reorder (lists page + task rows)                          | sovereign-tasks                                          | shipped ✅                    |
+| 2   | Mark notifications read on click (bell panel)                             | **platform** (`sovereignfs/sovereign`)                   | shipped ✅                    |
+| 3   | Virtual "Starred" list (all prioritized tasks in one view)                | sovereign-tasks                                          | shipped ✅                    |
+| 4   | Per-plugin push notification icon                                         | **platform** (`sovereignfs/sovereign`)                   | shipped ✅                    |
+| 5   | JSON export/import (account-level data portability)                       | sovereign-tasks                                          | shipped ✅                    |
+| 6   | Sticky list header + add-task row while scrolling                         | sovereign-tasks                                          | shipped ✅                    |
+| 7   | De-dupe `loadList` to stop duplicate server-action bursts on mobile       | sovereign-tasks                                          | shipped ✅                    |
+| 8   | Fix `sdk.db.getClient()` returning the platform DB from schedule handlers | **platform** (`sovereignfs/sovereign`)                   | shipped ✅ (draft PR)         |
+| 9   | Fix add-task appearing to do nothing on mobile                            | sovereign-tasks                                          | shipped ✅                    |
+| 10  | Investigate task-detail click race (wrong/no detail opens)                | sovereign-tasks                                          | closed — not a bug            |
+| 11  | Tighten `SwipableMobileCarouselDots` spacing for many-list instances      | **platform** (`sovereignfs/sovereign`) + sovereign-tasks | shipped ✅                    |
+| 12  | Fix invisible carousel dots; investigate swipe instability + header load  | **platform** (`sovereignfs/sovereign`)                   | partially shipped — see below |
 
 ---
 
@@ -1121,5 +1122,125 @@ prop on the carousel.
    `gap` drops from 8px to 4px, with all 14 dots (Lists + Starred + 12 real
    lists in the test data) still rendering correctly.
 
-<!-- Add Task 12, … above this line as new numbered sections, and keep the
+## Task 12 — Fix invisible carousel dots; investigate swipe instability + header load
+
+**Status:** partially shipped. The indicator-positioning bug is fixed and
+merged (platform). The swipe-instability root cause is identified but not
+fixed — it requires a product decision, not a mechanical patch (see below).
+The header-loading report was investigated and not reproduced.
+
+### Problem
+
+Live user report against a real dev server (`localhost:5010`, not the
+sandboxed preview): "swiping still not stable, list header still not loading
+before tasks." This follows Task 11 (carousel dots `density="compact"`).
+
+### Investigation
+
+Logged into the same running instance in both the in-app browser preview
+(mobile viewport) and a real iPhone 17 iOS Simulator (Safari), since prior
+sessions found browser-automation `ref`-based clicks and synthetic gestures
+can be unreliable proxies for real touch — see Task 10's write-up.
+
+**Finding 1 — carousel dots were completely invisible (not just cramped).**
+`getBoundingClientRect()`/`getComputedStyle()` on the live DOM showed the
+dots' `role="tablist"` element at `position: static`, sitting directly below
+`SwipableMobileCarousel`'s full-height `.scroller` box — clipped out of the
+visible carousel area entirely, not just tightly spaced. Root cause: platform
+repo, `packages/ui/src/components/SwipableMobileCarousel/SwipableMobileCarousel.tsx`
+applied its overlay-positioning CSS class (`position: absolute; bottom:
+var(--sv-space-3)`) directly to the _default_ `SwipableMobileCarouselDots`
+instance, not to a wrapper around whatever `renderIndicator` returns. Task
+11's own change necessarily switched this plugin to a _custom_
+`renderIndicator` (to forward `density="compact"`, since the carousel's
+`renderIndicator` callback signature has no `density` passthrough) — so the
+positioning class silently stopped applying the moment `density="compact"`
+shipped. This bug shipped in Task 11 and went unnoticed because that task's
+own live verification checked the `dotsCompact` class and computed `gap`,
+not the dots' on-screen position.
+
+**Fixed in the platform repo** (`fix/carousel-custom-indicator-positioning`,
+`packages/ui` `0.56.0` → `0.56.1`): `SwipableMobileCarousel.tsx` now always
+wraps the resolved indicator (default or custom) in its own positioned slot
+(`.dots` renamed `.indicatorSlot`), so positioning is owned by the carousel
+regardless of which indicator implementation is used. Added a regression
+test asserting both branches get the slot class. No change needed in this
+plugin.
+
+**Finding 2 — swipe instability root-caused, not yet fixed.** A real diagonal
+touch gesture on the iPhone 17 simulator (`touch_path`, ~34px of vertical
+drift over a ~340px horizontal drag — well within normal human swipe
+imprecision) on a task row failed to navigate the carousel at all, and left
+the row's drag handle visibly stuck in its `:hover`-revealed state
+afterward (a separate, known iOS Safari "sticky hover after touch" quirk).
+A perfectly horizontal swipe on the same row navigated cleanly every time.
+
+Root cause: this plugin's whole-row long-press drag-reorder
+(`app/_lib/dndSensors.ts`'s `useReorderSensors`, active whenever
+`sortBy: 'manual'` — the default) and the platform carousel's horizontal
+swipe both claim touch gestures starting anywhere on a task row. dnd-kit's
+`TouchSensor` is _supposed_ to cancel cleanly and hand off to native
+scrolling when movement exceeds its `tolerance` (8px) before the `delay`
+(300ms) elapses — and its own activation-constraint logic does — but
+`TouchSensor.setup()` (in `@dnd-kit/core`, not this codebase) registers a
+non-passive `window`-level `touchmove` listener for the whole lifetime the
+sensor is mounted, with an explicit comment: "force `event.preventDefault()`
+calls to work in dynamically added touchmove event handlers... required for
+iOS Safari." Once a touch gesture's first move event has to synchronously
+round-trip through a non-passive listener, iOS Safari does not retroactively
+resume native scroll-snap recognition for the rest of that same touch
+sequence, even after the sensor cancels and detaches. This is a documented
+dnd-kit/iOS Safari interaction, not a bug introduced by any change in this
+plugin or the platform.
+
+**Not fixed here** — a real fix means either narrowing touch drag-initiation
+back to a dedicated handle (partially reverting the deliberate, documented
+v0.12/v0.12.2 whole-row-touch-drag improvement — see this plugin's own
+`CLAUDE.md` "Drag reorder" section) or picking a different gesture-
+disambiguation strategy (e.g. suppressing whole-row touch drag specifically
+while inside the mobile carousel, keeping it on desktop and any future
+non-carousel touch surface). Both are product/UX trade-offs, not mechanical
+patches, and this plugin's drag-reorder is a well-tested, deliberately-built
+feature — not something to alter without sign-off.
+
+**Finding 3 — header-loading complaint not reproduced.** Tested both a cold
+full-page load (browser preview) and a multi-slide jump landing on a never-
+before-loaded list (simulator, three rapid consecutive swipes) — in both
+cases `MobileTasksCarousel.tsx`'s existing `SlideHeaderSkeleton` showed the
+list title immediately, with no blank flash, matching its documented design
+(`CLAUDE.md`'s `0.17.0` → `0.18.0` entry). No code change made. It's possible
+what the user perceived as "header not loading" was actually a symptom of
+Finding 2 — a swipe captured by drag-reorder leaves the carousel stuck on
+the old slide, which could read as "the new header never loaded."
+
+### Files
+
+| File                                                                                                     | Change                                                  |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `packages/ui/src/components/SwipableMobileCarousel/SwipableMobileCarousel.tsx` (platform repo)           | Always wrap the resolved indicator in a positioned slot |
+| `packages/ui/src/components/SwipableMobileCarousel/SwipableMobileCarousel.module.css` (platform repo)    | `.dots` → `.indicatorSlot`                              |
+| `packages/ui/src/components/SwipableMobileCarousel/__tests__/SwipableMobileCarousel.test.tsx` (platform) | Regression test for both indicator branches             |
+
+No files changed in this plugin's repo for this task.
+
+### Verification
+
+1. Live DOM inspection (browser preview) before the fix: `position: static`,
+   dots clipped below the scroller. After the fix: `position: absolute`,
+   correctly overlaid ~12px above the carousel's bottom edge.
+2. `pnpm vitest run SwipableMobileCarousel` (platform) — 15 passed (14
+   pre-existing + 1 new regression test).
+3. `pnpm typecheck`, `pnpm design:tokens:check` (platform) — clean.
+4. Real touch-gesture testing on iPhone 17 Simulator / Safari: multiple
+   clean horizontal swipes navigated correctly across several lists; a
+   diagonal swipe on a manual-sort list's task row reproduced the
+   swipe-capture bug described in Finding 2.
+
+### Follow-up needed
+
+Finding 2 (swipe-vs-drag-reorder gesture conflict) needs a developer decision
+on which trade-off to take before it can be fixed. Raised directly rather
+than filed as a silent TODO, since it affects a shipped, documented feature.
+
+<!-- Add Task 13, … above this line as new numbered sections, and keep the
      index table at the top in sync. -->
