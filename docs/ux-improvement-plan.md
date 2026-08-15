@@ -16,7 +16,7 @@ same surfaces in the same repo. Add new tasks as numbered sections; statuses:
 | 5   | JSON export/import (account-level data portability)                       | sovereign-tasks                                          | shipped ✅                                                        |
 | 6   | Sticky list header + add-task row while scrolling                         | sovereign-tasks                                          | shipped ✅                                                        |
 | 7   | De-dupe `loadList` to stop duplicate server-action bursts on mobile       | sovereign-tasks                                          | shipped ✅                                                        |
-| 8   | Fix `sdk.db.getClient()` returning the platform DB from schedule handlers | **platform** (`sovereignfs/sovereign`)                   | shipped ✅ (draft PR)                                             |
+| 8   | Fix `sdk.db.getClient()` returning the platform DB from schedule handlers | **platform** (`sovereignfs/sovereign`)                   | shipped ✅                                                        |
 | 9   | Fix add-task appearing to do nothing on mobile                            | sovereign-tasks                                          | shipped ✅                                                        |
 | 10  | Investigate task-detail click race (wrong/no detail opens)                | sovereign-tasks                                          | closed — not a bug                                                |
 | 11  | Tighten `SwipableMobileCarouselDots` spacing for many-list instances      | **platform** (`sovereignfs/sovereign`) + sovereign-tasks | shipped ✅                                                        |
@@ -844,8 +844,9 @@ same list, without changing when a _settled_ list is allowed to refetch.
 
 ## Task 8 — Fix `sdk.db.getClient()` returning the platform DB from schedule handlers
 
-**Status:** shipped ✅ — platform draft PR
-[sovereignfs/sovereign#482](https://github.com/sovereignfs/sovereign/pull/482).
+**Status:** shipped ✅ — platform PR
+[sovereignfs/sovereign#482](https://github.com/sovereignfs/sovereign/pull/482)
+(merged).
 **Repo:** platform monorepo (`sovereignfs/sovereign`) only — **no change needed
 in this plugin**, see below. Documented here because this plugin's own
 `due-reminders` schedule surfaced it. Branch type: `fix/` (patch bump).
@@ -1056,8 +1057,9 @@ event in the first place.
 
 **Status:** shipped ✅ — platform PR
 [sovereignfs/sovereign#483](https://github.com/sovereignfs/sovereign/pull/483)
-(the DS component change), plugin branch `feat/compact-carousel-dots` (the
-adoption).
+(the DS component change, merged) and
+[sovereign-plugin-tasks#37](https://github.com/sovereignfs/sovereign-plugin-tasks/pull/37)
+(the adoption, merged).
 **Repo:** platform monorepo (`sovereignfs/sovereign`) for the DS component
 change, sovereign-tasks for adopting it. `SwipableMobileCarouselDots` is a
 shared Design System component (`packages/ui`), consumed by every plugin
