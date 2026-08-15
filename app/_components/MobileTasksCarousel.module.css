@@ -26,13 +26,61 @@
   min-height: 0;
 }
 
-.slideLoading {
+/* SlideHeaderSkeleton — echoes TasksPane's own .stickyHeader/.header/
+   .titleRow/.dot/.starredIcon/.title (app/[listId]/TasksPane.module.css)
+   closely enough that the swap to the real header, once loading finishes,
+   reads as a content update rather than a layout jump. Deliberately not
+   shared/extracted — this is a plugin-local, transient loading stand-in for
+   a header the plugin already owns; see the component's own doc comment in
+   MobileTasksCarousel.tsx for why it isn't just TasksPane with an empty
+   task array instead. */
+.slideHeader {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.slideHeaderTitleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--sv-space-2);
+  min-width: 0;
+  padding: var(--sv-space-5) var(--sv-space-5) var(--sv-space-3);
+  border-bottom: 1px solid var(--sv-color-border);
+}
+
+.slideHeaderDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.slideHeaderStarredIcon {
+  flex-shrink: 0;
+  font-size: var(--sv-font-size-md);
+  line-height: 1;
+  color: var(--sv-color-text-primary);
+}
+
+.slideHeaderTitle {
+  min-width: 0;
+  flex-shrink: 1;
+  font-size: var(--sv-font-size-xl);
+  font-weight: 600;
+  margin: 0;
+  color: var(--sv-color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.slideHeaderBody {
+  flex: 1;
+  min-height: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  color: var(--sv-color-text-subtle);
-  font-size: var(--sv-font-size-sm);
 }
 
 /* Matches the platform shell's own drawer icon sizing
