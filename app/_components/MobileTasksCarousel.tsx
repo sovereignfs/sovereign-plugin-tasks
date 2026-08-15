@@ -158,6 +158,14 @@ export default function MobileTasksCarousel({
   const [listState, setListState] = useState<Record<string, ListState>>({});
   const [detailTask, setDetailTask] = useState<DetailTask | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  // Tracks listIds with a fetch currently in flight — a ref, not state, so a
+  // second loadList(id) call that lands before the first resolves can see it
+  // synchronously and no-op instead of firing a duplicate set of server
+  // actions. Needed because the callers' own guards (the prefetch effect's
+  // `if (!listState[id])`, below) read listState from a render closure that
+  // React's dev-mode Strict Mode double-invoke — or a fast swipe past the
+  // same neighbor twice before its first load settles — can race past.
+  const loadingIdsRef = useRef<Set<string>>(new Set());
 
   // null when on the Lists index (0) or the Starred slide (1, its own cache
   // entry lives under STARRED_LIST_ID instead of a real ListRow).
@@ -169,6 +177,8 @@ export default function MobileTasksCarousel({
   const taskIdParam = searchParams.get('task');
 
   const loadList = useCallback(async (listId: string) => {
+    if (loadingIdsRef.current.has(listId)) return;
+    loadingIdsRef.current.add(listId);
     setListState((s) => {
       const existing = s[listId];
       // A background refresh (e.g. router.refresh() after toggling a
@@ -212,6 +222,8 @@ export default function MobileTasksCarousel({
         ...s,
         [listId]: { tasks: [], showCompleted: false, status: 'error' },
       }));
+    } finally {
+      loadingIdsRef.current.delete(listId);
     }
   }, []);
 
