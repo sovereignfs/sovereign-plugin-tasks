@@ -252,6 +252,17 @@ export default function MobileTasksCarousel({
     setDetailTask((t) => (t ? { ...t, ...patch } : t));
   }, []);
 
+  // Mirrors patchTask above, for the add-task path — see TasksPane's
+  // onTaskAdded doc comment for why this is needed (without it, a task added
+  // on mobile appears to do nothing until loadList's own refetch catches up).
+  const addTask = useCallback((taskListId: string, task: TaskRow) => {
+    setListState((s) => {
+      const entry = s[taskListId];
+      if (!entry) return s;
+      return { ...s, [taskListId]: { ...entry, tasks: [...entry.tasks, task] } };
+    });
+  }, []);
+
   // Fetch the active slide plus its immediate neighbors — a single swipe
   // never shows a loading spinner since the destination is already cached.
   useEffect(() => {
@@ -412,6 +423,7 @@ export default function MobileTasksCarousel({
                     listId={list.id}
                     selectedTaskId={displayDetailTask?.id ?? null}
                     onTaskFieldPatch={(taskId, patch) => patchTask(list.id, taskId, patch)}
+                    onTaskAdded={(task) => addTask(list.id, task)}
                   />
                 ) : (
                   <SlideHeaderSkeleton title={list.title} color={list.color} starred={false} />

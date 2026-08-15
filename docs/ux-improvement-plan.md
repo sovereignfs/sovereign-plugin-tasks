@@ -17,7 +17,7 @@ same surfaces in the same repo. Add new tasks as numbered sections; statuses:
 | 6   | Sticky list header + add-task row while scrolling                         | sovereign-tasks                        | shipped ✅            |
 | 7   | De-dupe `loadList` to stop duplicate server-action bursts on mobile       | sovereign-tasks                        | shipped ✅            |
 | 8   | Fix `sdk.db.getClient()` returning the platform DB from schedule handlers | **platform** (`sovereignfs/sovereign`) | shipped ✅ (draft PR) |
-| 9   | Fix add-task appearing to do nothing on mobile                            | sovereign-tasks                        | planned               |
+| 9   | Fix add-task appearing to do nothing on mobile                            | sovereign-tasks                        | shipped ✅            |
 | 10  | Investigate task-detail click race (wrong/no detail opens)                | sovereign-tasks                        | planned               |
 | 11  | Tighten `SwipableMobileCarouselDots` spacing for many-list instances      | **platform** (`sovereignfs/sovereign`) | planned (deferred)    |
 
@@ -929,6 +929,74 @@ with no code change at all.
 
 ---
 
+## Task 9 — Fix add-task appearing to do nothing on mobile
+
+**Status:** shipped ✅ — implemented on `fix/mobile-add-task-feedback`.
+**Repo:** sovereign-tasks. Branch type: `fix/` (patch bump).
+
+### Problem
+
+Live-testing on mobile: typing a task and pressing Enter appeared to do
+nothing — the input didn't clear, the task count didn't update, and the new
+row wasn't visible until some unrelated navigation happened to re-render the
+list. The task _was_ actually being created (confirmed by finding it in a
+later, unrelated re-render).
+
+### Root cause (verified — not a missing optimistic update)
+
+`TasksPane.tsx`'s `handleAddTask` already had a working optimistic path
+(`setNewTitle('')` synchronously, `applyTaskAction({ type: 'add', ... })` via
+`useOptimistic`) — the same mechanism `toggleComplete`/star already use
+successfully. The actual bug is specific to how the mobile carousel is wired:
+`useOptimistic`'s overlay is discarded the moment its enclosing transition
+settles, reverting to whatever `initialTasks` prop is current at that point.
+On desktop, `router.refresh()` re-runs `page.tsx` synchronously with the
+transition, so fresh `initialTasks` (including the new task) is ready by the
+time the overlay is discarded. On mobile, `MobileTasksCarousel` deliberately
+keeps its own decoupled task cache (`listState`) — `router.refresh()` only
+changes `refreshSignal`'s identity, which triggers `loadList`'s own _separate,
+asynchronous_ refetch. The transition wrapping `createTask()` +
+`router.refresh()` settles (discarding the optimistic overlay) before that
+refetch resolves and delivers a fresh `initialTasks` containing the new task —
+a real gap where neither the optimistic value nor the authoritative one
+includes it yet. This is the exact class of bug `onTaskFieldPatch` (toggle/
+star) was already built to prevent — it just wasn't extended to the add path.
+
+### Fix (implemented)
+
+New optional `onTaskAdded?: (task: TaskRow) => void` prop on `TasksPane`,
+called synchronously alongside `applyTaskAction` in `handleAddTask` (desktop's
+`page.tsx` doesn't pass it, same as `onTaskFieldPatch`). `MobileTasksCarousel`
+gets a new `addTask(listId, task)` callback (mirrors `patchTask`) that appends
+the task straight into `listState[listId].tasks`, and passes it as
+`onTaskAdded` to the real-list `TasksPane` instance (the Starred slide has no
+add-row, so it never needs this).
+
+### Files
+
+| File                                      | Change                                                                                                                                                   |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/[listId]/TasksPane.tsx`              | `onTaskAdded` prop; call it in `handleAddTask`; hoisted the optimistic task object to a local so both the reducer dispatch and the new callback share it |
+| `app/_components/MobileTasksCarousel.tsx` | `addTask` callback; wired as `onTaskAdded` on the real-list slide                                                                                        |
+
+### Verification
+
+1. `pnpm dev`, mobile viewport, add a task: input clears immediately, task
+   count updates immediately, the row is visible immediately — no flash of
+   "nothing happened." **Confirmed live** — count went 16 → 17 instantly, the
+   new row appeared at the top with no reload, and the row was independently
+   confirmed as a real (non-optimistic-id) DB row afterward.
+2. Swipe away to a neighbor list and back: the added task is still there
+   (survived the carousel's mount-window unmount/remount, since it's now in
+   the persistent `listState` cache, not just the discarded optimistic
+   overlay).
+3. Regression: desktop add-task unaffected (no `onTaskAdded` passed there);
+   Starred view still has no add-row.
+4. `pnpm format:check && pnpm lint && pnpm typecheck && pnpm test`; version
+   bump; draft PR.
+
+---
+
 ## Task 10 — Investigate task-detail click race (wrong/no detail opens)
 
 **Status:** planned — root cause not yet confirmed, needs an isolated repro.
@@ -950,10 +1018,11 @@ index), and `TaskItem`'s detail `<Link>` href is built from that same task
 object — no index-based bug found there. The detail-open effect in
 `MobileTasksCarousel.tsx` (`~294-317`) has a proper `cancelled`-flag cleanup
 keyed on `taskIdParam`, so it isn't itself unguarded against rapid param
-changes. Task 7's fix (de-duping `loadList`) removes one source of concurrent
-in-flight requests that could have been racing a click's own navigation — this
-needs to be re-tested **after** Task 7 ships, since it may turn out to have
-been a symptom rather than a separate bug.
+changes. Task 7's fix (de-duping `loadList`, now shipped on `main`) removes
+one source of concurrent in-flight requests that could have been racing a
+click's own navigation — this needs to be re-tested now that Task 7 has
+shipped, since it may turn out to have been a symptom rather than a separate
+bug.
 
 ### Next step (not yet done)
 
