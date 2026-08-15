@@ -467,7 +467,15 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.18.4** (`0.18.3` → `0.18.4` adopts `@sovereignfs/ui`'s
+Current version: **0.18.5** (`0.18.4` → `0.18.5` strengthens `TaskItem.module.css`'s
+`.rowContainer` fix for the swipe-actions flash during fast vertical scroll,
+reported live as still visible after `overflow: hidden` alone: that clips
+this element's own painted content but doesn't stop a stale raster tile from
+the scrolling ancestor showing through for a frame — a tiling quirk, not a
+stacking-order one. Added `transform: translateZ(0)` to promote the row to
+its own compositing layer, rasterized independently of the scroller's tile
+grid. See `docs/ux-improvement-plan.md` Task 13's correction for the related
+carousel investigation this surfaced alongside. `0.18.3` → `0.18.4` adopts `@sovereignfs/ui`'s
 new `SwipableMobileCarouselDots` `density="compact"` prop (platform
 `packages/ui` `0.56.0`) for the mobile list-switcher dots: halves the gap
 between dots (`--sv-space-2` → `--sv-space-1`), since an instance with more

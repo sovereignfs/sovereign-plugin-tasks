@@ -172,8 +172,17 @@
      doesn't change what's visible during a real swipe (.swipeActionsBg is
      already sized to fill this exact box, never extends beyond it) — it only
      adds a raster-level clip that holds regardless of how descendants'
-     stacking contexts race during scroll. */
+     stacking contexts race during scroll. Still not fully sufficient on its
+     own, reported live: overflow: hidden clips this element's own painted
+     content, but doesn't stop a stale raster tile from the scrolling
+     ancestor showing through for a frame during fast momentum scroll — a
+     tiling quirk, not a stacking-order one, and clipping a descendant can't
+     fix a stale tile one layer up. transform: translateZ(0) promotes this
+     row to its own compositing layer, rasterized independently of the
+     scroller's tile grid, which is the actual fix for that class of
+     WebKit bug. */
   overflow: hidden;
+  transform: translateZ(0);
 }
 
 /* Mobile swipe-to-reveal's actions, behind .row. Sized/positioned so only
@@ -369,4 +378,3 @@
 .ringBtn:hover {
   background: var(--sv-color-surface-raised);
 }
-
