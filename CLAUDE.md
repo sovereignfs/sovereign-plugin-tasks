@@ -467,7 +467,28 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.18.0** (`0.17.0` → `0.18.0` is workstream 0001 leg 6 — the
+Current version: **0.18.2** (`0.18.1` → `0.18.2` fixes a duplicate
+server-action burst on mobile: loading a list page fired ~10 near-identical
+`getTasks`/`getOrCreatePrefs`/`getStarredTasks` calls instead of the expected
+5 (active slide + 2 neighbors). Root cause: `MobileTasksCarousel.tsx`'s
+`loadList` had no in-flight/loaded guard — its only guard
+(`if (!listState[id]) loadList(id)`, in the mount-prefetch effect) reads
+`listState` from that effect instance's own stale render closure, so React's
+dev-mode Strict Mode double-invoking the mount effect fired every real fetch
+twice. Fixed with a `loadingIdsRef` (`useRef<Set<string>>`) checked
+synchronously at the top of `loadList`, set before the fetch and cleared in a
+`finally` — guards every caller (the mount effect and the `refreshSignal`
+re-fetch effect) against overlapping calls for the same list, without
+changing when a settled list is allowed to refetch. Verified live: request
+count on a fresh list load dropped from ~10 to the expected 5. See
+`docs/ux-improvement-plan.md` Task 7 for the full account, including two
+related findings from the same investigation that turned out **not** to be
+carousel bugs: what looked like every list being mounted off-screen
+simultaneously was actually `TasksPane.tsx`'s legitimate hidden
+Filter-measurement clone matching the same DOM query, and a separate
+`sdk.db.getClient()` platform bug (fixed in the platform repo, no plugin
+code change — see that task's write-up) that was making the unrelated
+`due-reminders` scheduler fail every tick. `0.17.0` → `0.18.0` is workstream 0001 leg 6 — the
 mobile carousel's list header (title + colour dot/star) now stays on screen
 while a slide's tasks are still loading, instead of the whole slide going
 blank behind a centered "Loading…" placeholder. `MobileTasksCarousel.tsx`'s

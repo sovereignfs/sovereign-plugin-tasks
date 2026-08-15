@@ -7,14 +7,19 @@ then implemented; one branch/PR may cover several tasks when they touch the
 same surfaces in the same repo. Add new tasks as numbered sections; statuses:
 **planned** · **in progress** · **shipped** · **dropped**.
 
-| # | Task | Repo | Status |
-| --- | --- | --- | --- |
-| 1 | Long-press drag-reorder (lists page + task rows) | sovereign-tasks | shipped ✅ |
-| 2 | Mark notifications read on click (bell panel) | **platform** (`sovereignfs/sovereign`) | shipped ✅ |
-| 3 | Virtual "Starred" list (all prioritized tasks in one view) | sovereign-tasks | shipped ✅ |
-| 4 | Per-plugin push notification icon | **platform** (`sovereignfs/sovereign`) | shipped ✅ |
-| 5 | JSON export/import (account-level data portability) | sovereign-tasks | shipped ✅ |
-| 6 | Sticky list header + add-task row while scrolling | sovereign-tasks | shipped ✅ |
+| #   | Task                                                                      | Repo                                   | Status                |
+| --- | ------------------------------------------------------------------------- | -------------------------------------- | --------------------- |
+| 1   | Long-press drag-reorder (lists page + task rows)                          | sovereign-tasks                        | shipped ✅            |
+| 2   | Mark notifications read on click (bell panel)                             | **platform** (`sovereignfs/sovereign`) | shipped ✅            |
+| 3   | Virtual "Starred" list (all prioritized tasks in one view)                | sovereign-tasks                        | shipped ✅            |
+| 4   | Per-plugin push notification icon                                         | **platform** (`sovereignfs/sovereign`) | shipped ✅            |
+| 5   | JSON export/import (account-level data portability)                       | sovereign-tasks                        | shipped ✅            |
+| 6   | Sticky list header + add-task row while scrolling                         | sovereign-tasks                        | shipped ✅            |
+| 7   | De-dupe `loadList` to stop duplicate server-action bursts on mobile       | sovereign-tasks                        | shipped ✅            |
+| 8   | Fix `sdk.db.getClient()` returning the platform DB from schedule handlers | **platform** (`sovereignfs/sovereign`) | shipped ✅ (draft PR) |
+| 9   | Fix add-task appearing to do nothing on mobile                            | sovereign-tasks                        | planned               |
+| 10  | Investigate task-detail click race (wrong/no detail opens)                | sovereign-tasks                        | planned               |
+| 11  | Tighten `SwipableMobileCarouselDots` spacing for many-list instances      | **platform** (`sovereignfs/sovereign`) | planned (deferred)    |
 
 ---
 
@@ -35,7 +40,7 @@ capture scrolls. The fix is long-press-to-drag on both the Lists page rows and
 task rows.
 
 **Decision (confirmed):** on task rows — where long-press currently toggles
-bulk-select (TSK-20/21) — the gesture becomes *lift on hold*: moving reorders;
+bulk-select (TSK-20/21) — the gesture becomes _lift on hold_: moving reorders;
 releasing without moving toggles bulk-select (same outcome as today, confirmed
 at release instead of mid-hold).
 
@@ -48,11 +53,11 @@ at release instead of mid-hold).
   → optimistic reducer + `reorderTasks(listId, ids)` / `reorderLists(ids)`
   server actions → `router.refresh()`. Nothing server-side changes.
 - **Task drag gating**: `dragDisabled = sortBy !== 'manual'` (prop hides handle
-  + disables `useSortable`; `handleDragEnd` also guards). The mobile ⋯ menu
-  exposes Sort by, so this gating stays load-bearing on mobile. Lists are
-  always manually ordered (no gating).
+  - disables `useSortable`; `handleDragEnd` also guards). The mobile ⋯ menu
+    exposes Sort by, so this gating stays load-bearing on mobile. Lists are
+    always manually ordered (no gating).
 - **`useLongPress`** (`@sovereignfs/ui`): touch-only (`pointerType ===
-  'touch'`), 500 ms delay, 10 px tolerance, time-boxed click suppression,
+'touch'`), 500 ms delay, 10 px tolerance, time-boxed click suppression,
   `navigator.vibrate(10)`. Used ONLY on TaskItem's main `<Link>` for
   bulk-select. ListItem doesn't use it.
 - **Competing touch gestures**: swipe-to-reveal edge zones
@@ -149,15 +154,15 @@ transform.
 
 ### Files
 
-| File | Change |
-| --- | --- |
-| `app/_lib/dndSensors.ts` (new) | MouseSensor/TouchSensor subclasses with `[data-no-dnd]` exclusion, tuning constants, shared `useReorderSensors()` |
-| `app/[listId]/TasksPane.tsx` | sensor swap; touch in-place drop → bulk toggle in `handleDragEnd`; vibrate on touch drag start |
-| `app/_components/TaskItem.tsx` | row listeners when mobile; `useLongPress` disabled when `isMobile && !dragDisabled`; `data-no-dnd` on checkbox/star/ring/edge zone |
-| `app/ListSidebar.tsx` | sensor swap; row listeners when mobile; `data-no-dnd` on edge zone/⋯ button/rename input; in-place touch drop = no-op |
-| `app/_components/TaskItem.module.css` + `app/ListSidebar.module.css` | `.dragging` lift styles; ListSidebar mobile `.nav` scroll fix |
-| `CLAUDE.md` (Drag reorder + Mobile shell sections), `roadmap.md` | document the new gesture + the select-on-release semantics |
-| `package.json` | feat → minor bump (confirm current version at implementation) |
+| File                                                                 | Change                                                                                                                             |
+| -------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `app/_lib/dndSensors.ts` (new)                                       | MouseSensor/TouchSensor subclasses with `[data-no-dnd]` exclusion, tuning constants, shared `useReorderSensors()`                  |
+| `app/[listId]/TasksPane.tsx`                                         | sensor swap; touch in-place drop → bulk toggle in `handleDragEnd`; vibrate on touch drag start                                     |
+| `app/_components/TaskItem.tsx`                                       | row listeners when mobile; `useLongPress` disabled when `isMobile && !dragDisabled`; `data-no-dnd` on checkbox/star/ring/edge zone |
+| `app/ListSidebar.tsx`                                                | sensor swap; row listeners when mobile; `data-no-dnd` on edge zone/⋯ button/rename input; in-place touch drop = no-op              |
+| `app/_components/TaskItem.module.css` + `app/ListSidebar.module.css` | `.dragging` lift styles; ListSidebar mobile `.nav` scroll fix                                                                      |
+| `CLAUDE.md` (Drag reorder + Mobile shell sections), `roadmap.md`     | document the new gesture + the select-on-release semantics                                                                         |
+| `package.json`                                                       | feat → minor bump (confirm current version at implementation)                                                                      |
 
 Unit test: the `[data-no-dnd]` exclusion predicate (pure function) in
 `app/_lib/__tests__/dndSensors.test.ts`. The gesture itself is verified live —
@@ -256,11 +261,11 @@ was the user's stated requirement).
 
 ### Files
 
-| File | Change |
-| --- | --- |
-| `runtime/app/(platform)/_components/NotificationBell.tsx` | `markRead(id)` helper (keepalive + optimistic update); wire into URL-item anchor click; button-ify unread no-URL titles; `.itemRead` class |
-| `runtime/app/(platform)/_components/NotificationBell.module.css` | read-item title colour rule (reuse `.itemTitle`, add `.itemRead` modifier) |
-| `runtime/package.json` + root `package.json` | patch bumps (fix) |
+| File                                                             | Change                                                                                                                                     |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `runtime/app/(platform)/_components/NotificationBell.tsx`        | `markRead(id)` helper (keepalive + optimistic update); wire into URL-item anchor click; button-ify unread no-URL titles; `.itemRead` class |
+| `runtime/app/(platform)/_components/NotificationBell.module.css` | read-item title colour rule (reuse `.itemTitle`, add `.itemRead` modifier)                                                                 |
+| `runtime/package.json` + root `package.json`                     | patch bumps (fix)                                                                                                                          |
 
 No docs-parity impact (no manifest/SDK/env changes). No DB/API changes.
 
@@ -296,7 +301,7 @@ add to `roadmap.md` when implemented).
 Starred/prioritized tasks (TSK-26) are scattered across lists — there is no
 single view of everything the user has prioritized. Add a **virtual "Starred"
 list** pinned as the first entry on the lists surface: it aggregates every
-starred task across all the user's lists, but is *not* a real list — no row in
+starred task across all the user's lists, but is _not_ a real list — no row in
 `tasks_lists`, it owns no tasks, and tasks in it always remain in (and display)
 their source list.
 
@@ -313,7 +318,7 @@ their source list.
   a dedicated `app/starred/page.tsx` needs no special-casing inside
   `[listId]`.
 - **Mobile carousel** ([MobileTasksCarousel.tsx](../app/_components/MobileTasksCarousel.tsx)):
-  slide 0 = Lists index, slide *n* = `lists[n-1]`; per-list task cache keyed by
+  slide 0 = Lists index, slide _n_ = `lists[n-1]`; per-list task cache keyed by
   `listId` via `loadList` → `getTasks`/`getOrCreatePrefs`; bare `/tasks` lands
   on the first real list.
 - **TasksPane** takes `tasks` + `listId` + callbacks; add-row, ⋯ menu
@@ -379,17 +384,17 @@ unaffected).
 
 ### Files
 
-| File | Change |
-| --- | --- |
-| `app/_lib/virtualLists.ts` (new) | `STARRED_LIST_ID`, `isVirtualListId()` |
-| `app/_lib/actions.ts` | `getStarredTasks()` (+ optional `countStarredTasks()`) |
-| `app/starred/page.tsx` (new) | desktop route: sidebar + virtual TasksPane + detail pane |
-| `app/[listId]/TasksPane.tsx` | `virtualList` prop: header/menu/add-row/sort gating |
-| `app/_components/TaskItem.tsx` | `showListBadge` + `detailBasePath` props |
-| `app/ListSidebar.tsx` + `.module.css` | pinned Starred row above the sortable list |
-| `app/_components/MobileTasksCarousel.tsx` | synthetic slide at index 1; `loadList` fork on the pseudo-id |
-| `SPEC.md`, `roadmap.md`, `CLAUDE.md` | TSK-28 requirement + UI-rules note ("Starred is virtual — never a `tasks_lists` row") |
-| `package.json` | feat → minor bump |
+| File                                      | Change                                                                                |
+| ----------------------------------------- | ------------------------------------------------------------------------------------- |
+| `app/_lib/virtualLists.ts` (new)          | `STARRED_LIST_ID`, `isVirtualListId()`                                                |
+| `app/_lib/actions.ts`                     | `getStarredTasks()` (+ optional `countStarredTasks()`)                                |
+| `app/starred/page.tsx` (new)              | desktop route: sidebar + virtual TasksPane + detail pane                              |
+| `app/[listId]/TasksPane.tsx`              | `virtualList` prop: header/menu/add-row/sort gating                                   |
+| `app/_components/TaskItem.tsx`            | `showListBadge` + `detailBasePath` props                                              |
+| `app/ListSidebar.tsx` + `.module.css`     | pinned Starred row above the sortable list                                            |
+| `app/_components/MobileTasksCarousel.tsx` | synthetic slide at index 1; `loadList` fork on the pseudo-id                          |
+| `SPEC.md`, `roadmap.md`, `CLAUDE.md`      | TSK-28 requirement + UI-rules note ("Starred is virtual — never a `tasks_lists` row") |
+| `package.json`                            | feat → minor bump                                                                     |
 
 Unit tests: `getStarredTasks` scoping (tenant/owner, favorite-only, list
 decoration) alongside existing action tests; `isVirtualListId` trivially.
@@ -411,8 +416,7 @@ decoration) alongside existing action tests; `isVirtualListId` trivially.
    revisit); bare `/tasks` still lands on the first real list; swipe-to-reveal
    and carousel navigation unaffected on starred rows.
 5. Regression: real lists unchanged (reorder, rename, delete, add); deep link
-   `/tasks/starred` works logged-in; unknown slugs other than `starred` still
-   404.
+   `/tasks/starred` works logged-in; unknown slugs other than `starred` still 404.
 6. `pnpm format:check && pnpm lint && pnpm typecheck && pnpm test`; version
    bump; draft PR.
 
@@ -438,7 +442,7 @@ Web Push notifications from every plugin show the platform's generic icon
 A semantic mismatch in the SDK, not a missing feature:
 
 - `SendNotificationInput.icon` ([packages/sdk/src/types.ts:133](../../../packages/sdk/src/types.ts))
-  is documented as *"an `<Icon>` name from `@sovereignfs/ui`"* — an SVG
+  is documented as _"an `<Icon>` name from `@sovereignfs/ui`"_ — an SVG
   component name (e.g. `'calendar'`), intended for in-app rendering.
 - **Nothing in-app actually reads it.** `NotificationBell.tsx`'s `CategoryIcon`
   switches on `category`, not `icon`; `Toast.tsx` does the same. The field is
@@ -468,7 +472,7 @@ A semantic mismatch in the SDK, not a missing feature:
 **iOS Safari ignores custom push-notification icons entirely.** Apple's Web
 Push implementation always shows the installed PWA's own home-screen icon,
 by design — there is no override, before or after this fix. Chrome and
-Firefox (desktop + Android) *do* respect a custom icon. This fix has real
+Firefox (desktop + Android) _do_ respect a custom icon. This fix has real
 value on those platforms; iOS will keep showing the platform icon for every
 plugin's push notifications regardless. State this plainly in the PR
 description so it isn't mistaken for an incomplete fix later.
@@ -477,8 +481,8 @@ description so it isn't mistaken for an incomplete fix later.
 
 1. **Fix the field's semantics.** Repurpose `SendNotificationInput.icon` (and
    `PushPayload.icon` in `runtime/src/push.ts` /
-   `runtime/worker/index.ts`) to mean *"URL to an image, shown in the OS push
-   notification"* — update the doc comment accordingly. Since nothing in-app
+   `runtime/worker/index.ts`) to mean _"URL to an image, shown in the OS push
+   notification"_ — update the doc comment accordingly. Since nothing in-app
    consumes it today, this is a safe redefinition, not a breaking change to
    any real caller (`sovereign-tasks` is currently the only plugin passing an
    `icon` value, and it's already effectively broken).
@@ -500,13 +504,13 @@ description so it isn't mistaken for an incomplete fix later.
 
 ### Files
 
-| File | Change |
-| --- | --- |
-| `packages/sdk/src/types.ts` | `SendNotificationInput.icon` doc comment corrected (URL, not component name) |
-| `runtime/src/push.ts` | `PushPayload.icon` doc comment corrected; `fanOutPushToUser`/`fanOutPushToUsers` default `icon` to `/plugin-icons/<source>.svg` when unset |
-| `runtime/worker/index.ts` | no logic change expected (already passes `data.icon` through) — confirm during implementation |
-| `runtime/package.json` + root `package.json` | patch bumps (fix) |
-| *(sovereign-tasks repo, follow-up)* `app/_jobs/due-reminders.ts` | remove `icon: 'calendar'` |
+| File                                                             | Change                                                                                                                                     |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/sdk/src/types.ts`                                      | `SendNotificationInput.icon` doc comment corrected (URL, not component name)                                                               |
+| `runtime/src/push.ts`                                            | `PushPayload.icon` doc comment corrected; `fanOutPushToUser`/`fanOutPushToUsers` default `icon` to `/plugin-icons/<source>.svg` when unset |
+| `runtime/worker/index.ts`                                        | no logic change expected (already passes `data.icon` through) — confirm during implementation                                              |
+| `runtime/package.json` + root `package.json`                     | patch bumps (fix)                                                                                                                          |
+| _(sovereign-tasks repo, follow-up)_ `app/_jobs/due-reminders.ts` | remove `icon: 'calendar'`                                                                                                                  |
 
 ### Verification
 
@@ -638,14 +642,14 @@ account-level export/deletion.
 
 ### Files
 
-| File | Change |
-| --- | --- |
-| `app/_lib/portability.ts` (new) | `exportTasksData`, `importTasksData`, `deleteAllTasksData`, `registerPortabilityHandlers()` |
-| `app/layout.tsx` | call `registerPortabilityHandlers()` (best-effort, matching plainwrite's `layout.tsx` wrapping) |
+| File                                           | Change                                                                                                                                                                                                                                                |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/_lib/portability.ts` (new)                | `exportTasksData`, `importTasksData`, `deleteAllTasksData`, `registerPortabilityHandlers()`                                                                                                                                                           |
+| `app/layout.tsx`                               | call `registerPortabilityHandlers()` (best-effort, matching plainwrite's `layout.tsx` wrapping)                                                                                                                                                       |
 | `app/_lib/__tests__/portability.test.ts` (new) | same fake-db/drizzle-mock harness as plainwrite's test; cover: export shape + tenant/owner scoping, import shape rejection, remap + cross-reference rebuild (list/view/item/parentId/seriesId), orphan-reference skip behavior, delete cascade totals |
-| `manifest.json` | add `data:export`, `data:import` permissions |
-| `CLAUDE.md`, `SPEC.md`, `roadmap.md` | note portability participation (proposed TSK-29) |
-| `package.json` | feat → minor bump |
+| `manifest.json`                                | add `data:export`, `data:import` permissions                                                                                                                                                                                                          |
+| `CLAUDE.md`, `SPEC.md`, `roadmap.md`           | note portability participation (proposed TSK-29)                                                                                                                                                                                                      |
+| `package.json`                                 | feat → minor bump                                                                                                                                                                                                                                     |
 
 ### Verification
 
@@ -751,10 +755,10 @@ require scrolling back to the top to reach.
 
 ### Files
 
-| File | Change |
-| --- | --- |
-| `app/[listId]/TasksPane.module.css` | `.header`/`.addRow` → sticky wrapper; opaque background custom property (mirroring `TaskDetailPane.module.css`'s `--tasks-detail-bg`) |
-| `app/[listId]/TasksPane.tsx` | wrap `.header`/`.addRow` JSX in the new sticky container if a wrapper element is needed |
+| File                                                         | Change                                                                                                                                          |
+| ------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `app/[listId]/TasksPane.module.css`                          | `.header`/`.addRow` → sticky wrapper; opaque background custom property (mirroring `TaskDetailPane.module.css`'s `--tasks-detail-bg`)           |
+| `app/[listId]/TasksPane.tsx`                                 | wrap `.header`/`.addRow` JSX in the new sticky container if a wrapper element is needed                                                         |
 | `app/[listId]/page.module.css` (desktop three-column layout) | supply the sticky header's background override the same way `.detailCol` does for `TaskDetailPane`, if the token needs a desktop-specific value |
 
 ### Verification
@@ -778,5 +782,214 @@ require scrolling back to the top to reach.
 
 ---
 
-<!-- Add Task 7, 8, … above this line as new numbered sections, and keep the
+## Task 7 — De-dupe `loadList` to stop duplicate server-action bursts on mobile
+
+**Status:** shipped ✅ — implemented on `fix/dedupe-loadlist`.
+**Repo:** sovereign-tasks. Branch type: `fix/` (patch bump).
+
+### Problem
+
+Live-testing the mobile carousel (browser network tab) showed ~10 near-identical
+`POST` requests fire to the same list route on a single page load, with no user
+interaction.
+
+### Root cause (verified)
+
+`MobileTasksCarousel.tsx`'s prefetch effect (mount, `~245-254`) calls
+`loadList(listId)` for the active slide and its two neighbors — landing on a
+real list fires `getTasks` + `getOrCreatePrefs` per slide, plus `getStarredTasks`
+for the Starred neighbor: 5 real requests, not a bug by itself. `loadList`
+(`171-216`) had **no de-dupe/in-flight guard** — its only guard
+(`if (!listState[id]) loadList(id)`, in the effect) reads `listState` from that
+effect instance's own stale render closure. Next dev's React Strict Mode
+double-invokes the mount effect; both invocations share the same stale empty
+`listState`, so the guard doesn't stop the second pass — 5 × 2 ≈ 10 near-identical
+requests, matching what was observed. Confirmed as a one-time double-burst per
+mount in dev, not an unbounded loop, but the missing guard would also double-fire
+on a real fast-swipe-past-a-neighbor-then-back case.
+
+### Fix (implemented)
+
+Added `loadingIdsRef` (`useRef<Set<string>>`) to `MobileTasksCarousel.tsx`.
+`loadList` checks it synchronously on entry and no-ops if the id is already
+in flight; adds the id before the fetch, removes it in a `finally` regardless
+of success/failure. This guards every caller (the mount-prefetch effect above,
+and the `refreshSignal` re-fetch effect) against overlapping calls for the
+same list, without changing when a _settled_ list is allowed to refetch.
+
+### Files
+
+| File                                      | Change                                                        |
+| ----------------------------------------- | ------------------------------------------------------------- |
+| `app/_components/MobileTasksCarousel.tsx` | `loadingIdsRef`; `loadList` guarded entry + `finally` cleanup |
+
+### Verification
+
+1. `pnpm dev`, mobile viewport, open the Network tab, navigate to `/tasks`:
+   confirm the request count per list lands at the real number (≤5 for a
+   fresh 3-slide window), not ~10. **Confirmed live** — dropped from ~10 to 7
+   (the residual 7, one of which is a superseded/aborted request, matches the
+   two-phase cold-load URL sync at bare `/tasks`, not true duplicates).
+2. Swipe rapidly past a neighbor list and back before it would have settled;
+   confirm no duplicate fetch pair fires for it.
+3. Regression: switching lists still shows fresh data with no stale cache;
+   toggling a task still triggers the `refreshSignal` refetch normally (the
+   guard must not block a _later_, non-overlapping refetch).
+4. `pnpm format:check && pnpm lint && pnpm typecheck && pnpm test`; version
+   bump; draft PR.
+
+---
+
+## Task 8 — Fix `sdk.db.getClient()` returning the platform DB from schedule handlers
+
+**Status:** shipped ✅ — platform draft PR
+[sovereignfs/sovereign#482](https://github.com/sovereignfs/sovereign/pull/482).
+**Repo:** platform monorepo (`sovereignfs/sovereign`) only — **no change needed
+in this plugin**, see below. Documented here because this plugin's own
+`due-reminders` schedule surfaced it. Branch type: `fix/` (patch bump).
+
+### Problem
+
+`runtime` server logs showed, every minute since server start:
+
+```
+scheduler: schedule handler failed pluginId=fs.sovereign.tasks scheduleId=due-reminders
+Failed query: select ... from "tasks_notification_prefs" where "enabled" = ?
+```
+
+### Root cause (verified against the live dev DB, not assumed)
+
+Queried the running sqld instance directly (`docker exec` into
+`sovereign-sqld-dev`, found the real per-plugin namespace at
+`/var/lib/sqld/iku.db/dbs/plugin_fs_sovereign_tasks`, then hit it via
+`Host: plugin_fs_sovereign_tasks.local` against the HTTP pipeline endpoint):
+`tasks_notification_prefs` exists and the exact failing SQL runs fine against
+it. The platform's **default** namespace (queried the same way with no `Host`
+override) has no `tasks_*` tables at all — confirming the scheduler's query
+was running against the **wrong database**, not a broken query.
+
+`packages/sdk/src/db.ts`'s `getClient()` resolves the calling plugin's id by
+reading `x-sovereign-plugin-id` via `next/headers`' `headers()` — which only
+resolves inside a real Next.js request. `runtime/src/scheduler.ts` (and
+`jobs.ts`) invoke plugin handlers outside any request (a plain interval/worker
+loop), so `pluginId` always resolved to `null`, and `getClient(null)` is a
+**valid, meaningful** call (it's what `type: "platform"` plugins use
+deliberately) — so the failure was silent until the query hit a missing table,
+not an obvious auth-style error.
+
+### Fix (shipped, platform repo — this plugin's own code is untouched)
+
+**First attempt was wrong and reverted before it ever left the branch**: giving
+`sdk.db.getClient()` an optional `requestHeaders` override parameter, mirroring
+`sdk.email.sendToUser()`'s existing pattern. It compiled and worked, but the
+platform's own pre-push hook caught
+`runtime/src/__tests__/sdk-host-db-routing.test.ts` asserting
+`sdk.db.getClient.length === 0` as a **deliberate security invariant** — this
+call must have zero argument surface, so no plugin-authored code can ever
+supply an identity to claim a different plugin's database. Full read/write
+access to another plugin's entire isolated database is a materially
+higher-severity concern than the email-spoofing risk `sdk.email`'s own
+explicit-headers parameter already accepts, which is presumably why the two
+surfaces were deliberately held to different standards.
+
+The actual fix mirrors `portability/plugin-context.ts`'s existing solution to
+the identical problem (export/import resolvers, also invoked outside any
+plugin request): a new `runtime/src/background-plugin-context.ts`
+`AsyncLocalStorage`, populated only by trusted runtime code
+(`scheduler.ts`/`jobs.ts` wrap each handler invocation in
+`runWithBackgroundPlugin(pluginId, ...)`), checked by `sdk-host.ts`'s
+`db.getClient()` as a fallback after the request header and the portability
+context. **`sdk.db.getClient()`'s public signature and zero-argument
+invariant are completely untouched** — this plugin's `due-reminders.ts` still
+calls plain `sdk.db.getClient()`, exactly as before, and is now simply correct
+with no code change at all.
+
+### Files (platform repo — none in this plugin)
+
+| File                                                                                                                                | Change                                                               |
+| ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| `runtime/src/background-plugin-context.ts` (new)                                                                                    | `AsyncLocalStorage` context, mirrors `portability/plugin-context.ts` |
+| `runtime/src/sdk-host.ts`                                                                                                           | `db.getClient()` fallback chain checks the new context               |
+| `runtime/src/scheduler.ts`                                                                                                          | wraps handler invocation in `runWithBackgroundPlugin`                |
+| `runtime/src/jobs.ts`                                                                                                               | wraps handler invocation in `runWithBackgroundPlugin`                |
+| `runtime/src/__tests__/background-plugin-context.test.ts` (new), `scheduler.test.ts`, `jobs.test.ts`, `sdk-host-db-routing.test.ts` | regression coverage                                                  |
+
+### Verification
+
+1. `pnpm exec vitest run` (platform root, full suite) — 2245 passed.
+   **Confirmed live.**
+2. `pnpm dev`, wait for the next scheduler tick (≤60s): confirm the
+   `scheduler: schedule handler failed` log line for `due-reminders` no longer
+   appears. **Confirmed live** — restarted the dev server (schedule handlers
+   are imported once at startup, no HMR), waited through multiple ticks: zero
+   `failed`/error log lines, versus one every single minute before the fix.
+3. `pnpm format:check && pnpm lint && pnpm typecheck && pnpm design:tokens:check && pnpm test`
+   (platform root, via the pre-push hook) — green; patch bump (root
+   `package.json`); draft PR against the platform repo.
+
+---
+
+## Task 10 — Investigate task-detail click race (wrong/no detail opens)
+
+**Status:** planned — root cause not yet confirmed, needs an isolated repro.
+**Repo:** sovereign-tasks (pending investigation; may turn out to be a
+platform/DS issue if it reproduces outside this plugin — TBD).
+
+### Problem
+
+Reproduced twice during live testing, in different shapes: once as "click a
+task row → a _different_ task's detail opens" (traced to a real mismatched
+href/task-id at the time, not a coordinate/measurement artifact), once as
+"click a task row → nothing opens at all," with `net::ERR_ABORTED` network
+entries visible in the same window as Task 7's request burst.
+
+### Current state
+
+Not yet root-caused. `TasksPane.tsx` keys every row by `task.id` (not array
+index), and `TaskItem`'s detail `<Link>` href is built from that same task
+object — no index-based bug found there. The detail-open effect in
+`MobileTasksCarousel.tsx` (`~294-317`) has a proper `cancelled`-flag cleanup
+keyed on `taskIdParam`, so it isn't itself unguarded against rapid param
+changes. Task 7's fix (de-duping `loadList`) removes one source of concurrent
+in-flight requests that could have been racing a click's own navigation — this
+needs to be re-tested **after** Task 7 ships, since it may turn out to have
+been a symptom rather than a separate bug.
+
+### Next step (not yet done)
+
+A clean, single-click, network-correlated repro: one task click, nothing else
+in flight, full network log captured around it. If it still reproduces after
+Task 7, escalate with the captured repro rather than guessing further at the
+cause.
+
+---
+
+## Task 11 — Tighten `SwipableMobileCarouselDots` spacing for many-list instances
+
+**Status:** planned (deferred) — not implemented this pass.
+**Repo:** platform monorepo (`sovereignfs/sovereign`) — `SwipableMobileCarouselDots`
+is a shared Design System component (`packages/ui`), consumed by every plugin
+using `SwipableMobileCarousel`. Per this repo's DS-first rule, a spacing/density
+change belongs there, not as a plugin-local override. Branch type: `feat:` or
+`fix:` (platform), TBD at implementation.
+
+### Problem
+
+What looked like a long row of "list-switcher tabs" during live testing is
+`SwipableMobileCarouselDots`' default indicator — 20×20px hit targets,
+`gap: var(--sv-space-2)` (0.5rem) between them. With ~12 lists (Lists index +
+Starred + 10 real lists) that's roughly 328px of dots in a 375px viewport —
+plausibly reads as cramped/lengthy on an instance with more than a handful of
+lists.
+
+### Why deferred
+
+Any change here affects every consumer of `SwipableMobileCarousel`
+(currently Tasks and Shopper, per the DS docs), not just this plugin. Needs a
+look at every current consumer before deciding between a new `density`/`size`
+prop vs. changing the shared default, which this pass didn't have scope for.
+Tracked here as a known, scoped finding for a future platform-repo task —
+not implemented in this pass.
+
+<!-- Add Task 12, … above this line as new numbered sections, and keep the
      index table at the top in sync. -->
