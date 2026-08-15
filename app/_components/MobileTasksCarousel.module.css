@@ -1,43 +1,14 @@
+/* .scroller/.slide/.dots (+ the WebKit -webkit-overflow-scrolling: touch
+   compositing bug they used to document) are now owned by
+   @sovereignfs/ui's SwipableMobileCarousel — see
+   packages/ui/src/components/SwipableMobileCarousel/SwipableMobileCarousel.module.css,
+   which already avoids that same property for the same documented reason.
+   Only the wrapper and the loading placeholder stay plugin-local. */
+
 .wrap {
   position: relative;
   height: 100%;
   width: 100%;
-}
-
-.scroller {
-  height: 100%;
-  width: 100%;
-  display: flex;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scroll-snap-type: x mandatory;
-  /* Momentum + rubber-banding come from the browser's native scroll physics —
-     no hand-rolled pointer/touch dragging. Deliberately NOT
-     -webkit-overflow-scrolling: touch: that property is a legacy iOS <13
-     hint (native momentum scrolling has been the default for any overflow
-     container since) that's been implicated in a real, reported bug here —
-     any position:fixed overlay opened while this carousel is mounted
-     underneath it (Sheet's "Edit list" panel, the shell's Apps Drawer — the
-     bug reproduced on both, confirming it's about this scroller, not either
-     overlay component) painted BEHIND the carousel's own .dots indicator
-     instead of above it, on real iOS Safari — invisible in Chromium
-     DevTools. This is a known class of WebKit quirk: the property promotes
-     its element to its own compositing layer for GPU-accelerated momentum
-     scroll, and that layer's paint order relative to siblings/fixed
-     descendants elsewhere in the tree isn't always reliable. Removing it
-     doesn't disable momentum scrolling on any iOS version this app
-     realistically targets — it just stops requesting the legacy behaviour
-     that caused the rogue layer. */
-}
-
-.slide {
-  flex: 0 0 100%;
-  width: 100%;
-  height: 100%;
-  min-width: 0;
-  overflow: hidden;
-  scroll-snap-align: start;
-  scroll-snap-stop: always;
 }
 
 .slideLoading {
@@ -47,28 +18,4 @@
   height: 100%;
   color: var(--sv-color-text-subtle);
   font-size: var(--sv-font-size-sm);
-}
-
-.dots {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: var(--sv-space-3);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--sv-space-2);
-  pointer-events: none;
-}
-
-.dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--sv-color-border-strong);
-  transition: background 0.15s ease;
-}
-
-.dotActive {
-  background: var(--sv-color-text-primary);
 }

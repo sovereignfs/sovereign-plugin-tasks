@@ -13,13 +13,13 @@ Spec: [SPEC.md](SPEC.md)
 
 ## Identity
 
-| Property      | Value                          |
-| ------------- | ------------------------------ |
-| Plugin ID     | `fs.sovereign.tasks`           |
-| Route prefix  | `/tasks`                       |
-| Permissions   | `auth:session`, `db:readWrite`, `notifications:send`, `data:export`, `data:import` |
-| Min platform  | `0.19.0`                       |
-| Table prefix  | `tasks_`                       |
+| Property     | Value                                                                              |
+| ------------ | ---------------------------------------------------------------------------------- |
+| Plugin ID    | `fs.sovereign.tasks`                                                               |
+| Route prefix | `/tasks`                                                                           |
+| Permissions  | `auth:session`, `db:readWrite`, `notifications:send`, `data:export`, `data:import` |
+| Min platform | `0.19.0`                                                                           |
+| Table prefix | `tasks_`                                                                           |
 
 ## SDK-only rule
 
@@ -66,13 +66,13 @@ All plugin tables are prefixed `tasks_`:
 
 Requirement IDs are stable — never renumber or reuse a TSK-* id.
 
-| Milestone | TSK IDs  | Status  | Description                                          |
-| --------- | -------- | ------- | ---------------------------------------------------- |
-| v0.1      | 01–09    | shipped | Private lists, task/subtask CRUD, completion, sort   |
-| v0.2      | 10–14    | blocked | Collaboration — requires `sdk.directory` (sv-RFC 0041)  |
-| v0.3      | 15–21    | shipped | Due dates, overdue, filters, search, keyboard shortcuts, bulk delete/move |
-| v0.4      | 22–25    | shipped | Recurrence via `rrule` (sv-RFC 5545) — nth-day-of-month deferred |
-| v1.0      | —        | future  | Polish, docs, reference implementation               |
+| Milestone | TSK IDs | Status  | Description                                                               |
+| --------- | ------- | ------- | ------------------------------------------------------------------------- |
+| v0.1      | 01–09   | shipped | Private lists, task/subtask CRUD, completion, sort                        |
+| v0.2      | 10–14   | blocked | Collaboration — requires `sdk.directory` (sv-RFC 0041)                    |
+| v0.3      | 15–21   | shipped | Due dates, overdue, filters, search, keyboard shortcuts, bulk delete/move |
+| v0.4      | 22–25   | shipped | Recurrence via `rrule` (sv-RFC 5545) — nth-day-of-month deferred          |
+| v1.0      | —       | future  | Polish, docs, reference implementation                                    |
 
 **TSK-26 (star/favourite)** and **TSK-27 (move a task to a different list, from
 the detail pane)** shipped ahead of phasing alongside the three-column web home.
@@ -142,12 +142,12 @@ Console admin user routes as a workaround.
 One data model, multiple presentations. Views are a lens — never a fork of the
 task/completion model.
 
-| View | `kind` | Status |
-| --- | --- | --- |
-| Compact | `compact` | v0.1 |
+| View           | `kind`           | Status |
+| -------------- | ---------------- | ------ |
+| Compact        | `compact`        | v0.1   |
 | Kanban Compact | `kanban_compact` | future |
-| Kanban | `kanban` | future |
-| Visualizer | `visualizer` | future |
+| Kanban         | `kanban`         | future |
+| Visualizer     | `visualizer`     | future |
 
 v0.1 renders the Compact view only. Future views are additive and must not
 require changes to `tasks_items` ownership or completion columns.
@@ -194,7 +194,7 @@ just an initial (overly conservative) scope choice.
 
 **The handle's own hover-reveal had a separate, pre-existing bug**: it never
 actually became visible on hover, on either row type, at any point before
-v0.12.2 — `.dragHandle`/`.dragHandle` (ListSidebar/TaskItem) sits *before*
+v0.12.2 — `.dragHandle`/`.dragHandle` (ListSidebar/TaskItem) sits _before_
 `.rowInner`/`.row` in the DOM, and that later sibling has an opaque
 (inherited) background with no `z-index` of its own on desktop; two
 positioned siblings with no z-index difference paint in DOM order, so the
@@ -207,7 +207,7 @@ discoverable, expected interaction worth actually looking for the handle.
 **Task reorder must compute indices against `activeVisible`, never raw
 `tasks`** — `TasksPane.tsx`'s `handleDragEnd`. dnd-kit's `SortableContext` for
 task rows is seeded with `activeVisible.map(t => t.id)` — the actually
-*rendered* order — and `activeVisible` always runs `tasks` through
+_rendered_ order — and `activeVisible` always runs `tasks` through
 `pinDueTodayAndOverdue` on top of `sortTasks`, even under `sortBy: 'manual'`
 (due-today/overdue tasks are pinned first regardless of sort mode). `active`/
 `over` from a `DragEndEvent` are positions within that rendered array, not
@@ -222,8 +222,8 @@ full `tasks` array by walking `tasks` in its original order and substituting
 each visible-subset member's id with the next id from the reordered subset —
 this preserves the position of everything dnd-kit never saw (completed
 tasks, tasks hidden by the current filter). One consequence worth knowing:
-dragging a pinned (due-today/overdue) task, or dragging *relative to* one,
-can look like a no-op — pinning always wins the *rendered* position
+dragging a pinned (due-today/overdue) task, or dragging _relative to_ one,
+can look like a no-op — pinning always wins the _rendered_ position
 regardless of the new manual order underneath it, so the visible list may
 not change even though the persisted order did. This is correct, expected
 behavior, not a bug to chase.
@@ -232,7 +232,7 @@ behavior, not a bug to chase.
 
 Uses `rrule` (sv-RFC 5545) — see `app/_lib/recurrence.ts`. **`rrule` operates
 on UTC internally.** Constructing its `dtstart` (or any date passed to
-`.after()`) from a *local* `new Date(y, m, d)` silently shifts which weekday
+`.after()`) from a _local_ `new Date(y, m, d)` silently shifts which weekday
 matches a `byweekday` rule by one day on servers with a positive UTC offset —
 verified empirically (a Tuesday `dtstart` built with `new Date(2026, 6, 7)`
 produced a Tue/Thu/Sat sequence for a Mon/Wed/Fri rule instead of Mon/Wed/Fri).
@@ -335,36 +335,56 @@ delegates to `app/_components/MobileAwareShell.tsx`, which on mobile mounts
 `MobileTasksCarousel.tsx` instead of rendering `children` (page.tsx's
 server-rendered output) at all.
 
-- **Carousel model**: slide 0 is `ListSidebar` full-page (mobile equivalent of
-  the sidebar); slide *n* is `TasksPane` for `lists[n-1]`. A native
-  `scroll-snap-type: x` container gives swipe physics for free — no hand-
-  rolled pointer dragging. Swiping right (finger left→right) reveals the
-  previous slide (toward the Lists index); swiping left advances toward the
-  next list — standard carousel convention. Landing at the bare `/tasks`
-  route puts you on your **first list**, not the Lists index (matches the
-  desktop sidebar+first-list both being visible at once); the index slide is
-  reached only by swiping.
+- **Carousel model (workstream 0001 leg 1)**: `MobileTasksCarousel.tsx` renders
+  through `@sovereignfs/ui`'s `SwipableMobileCarousel`, driven by
+  `useCarouselRouteSync` — slide 0 is `ListSidebar` full-page (mobile
+  equivalent of the sidebar), slide 1 is the virtual Starred view, slide _n_
+  (n≥2) is `TasksPane` for `lists[n-2]`. The scroll-snap physics, settle
+  detection, and pathname↔index sync that used to be hand-rolled here now
+  live in the DS package (`useSnapCarousel`/`useCarouselRouteSync`) — this
+  plugin only supplies `indexForPathname`/`pathForIndex` (the routing map)
+  and the per-list task cache below. Landing at the bare `/tasks` route puts
+  you on your **first list**, not the Lists index (matches the desktop
+  sidebar+first-list both being visible at once); the index slide is reached
+  only by swiping. **Mount-window caveat**: `SwipableMobileCarouselSlide`
+  only keeps `activeIndex ± prefetchDistance` (default 1) _mounted_ — a slide
+  more than one away unmounts its `TasksPane`/`ListSidebar` instance,
+  resetting that instance's own ephemeral UI state (sort/filter selection,
+  bulk selection, in-progress rename, scroll position) on remount. This
+  matches desktop's existing behavior (switching `/tasks/[listId]` routes
+  already remounts `TasksPane`) — it is not a regression from the old
+  carousel's "never unmount once visited" behavior, it's a deliberate
+  alignment with desktop.
 - **Fully decoupled data, on purpose**: `MobileTasksCarousel` fetches every
   list's tasks itself via the existing `getTasks`/`getTask`/`getOrCreatePrefs`
   server actions (already callable straight from client code elsewhere in
-  this plugin), caches them per `listId`, and eagerly prefetches the
-  immediate left/right neighbors on every index change — so a single swipe
-  never shows a loading spinner. This means `page.tsx`'s own server fetch for
-  the routed list runs and is simply unused on mobile (its JSX is never
-  rendered) — a deliberate, accepted redundancy that keeps `TasksPane`/
-  `TaskDetailPane` completely unmodified and lets the carousel's cache survive
-  route changes (a real prop-threaded alternative would force a remount on
-  every swipe-triggered navigation, defeating the "no loading flash" point).
+  this plugin), caches them per `listId` in its own `listState`, and eagerly
+  prefetches the immediate left/right neighbors on every index change — so a
+  single swipe never shows a loading spinner. This cache is independent of
+  `SwipableMobileCarouselSlide`'s mount window (above): once fetched, a
+  list's tasks stay cached even after its slide unmounts, so revisiting it
+  never re-fetches or spinners, only its transient UI state resets. This
+  means `page.tsx`'s own server fetch for the routed list runs and is simply
+  unused on mobile (its JSX is never rendered) — a deliberate, accepted
+  redundancy that keeps `TasksPane`/`TaskDetailPane` completely unmodified
+  and lets the carousel's cache survive route changes (a real prop-threaded
+  alternative would force a remount on every swipe-triggered navigation,
+  defeating the "no loading flash" point).
 - **`router.refresh()` still works**: `MobileAwareShell` passes `children`
   through to the carousel as `refreshSignal` — not to render, purely as a
   signal. Every `router.refresh()` call already scattered through
   `TasksPane`/`TaskDetailPane`/etc. gives `children` a new identity, and the
   carousel's effect keyed on that reference re-fetches the active slide. This
-  is *why* none of those existing mutation handlers needed touching.
-- **Settled-slide detection is a debounced `scroll` listener**, not the
-  `scrollend` event — iOS Safari/WKWebView only gained `scrollend` in 17.4,
-  and older versions are still a live concern per this plugin's iOS PWA
-  history.
+  is _why_ none of those existing mutation handlers needed touching.
+- **No orientation-resize realignment**: the old hand-rolled carousel had a
+  `window` `resize` listener that re-snapped `scrollLeft` on orientation
+  change; `SwipableMobileCarousel`/`useSnapCarousel` don't expose an
+  imperative "re-snap to the current index" hook a consumer can call from
+  outside, so this was dropped rather than reintroducing a local DOM-reaching
+  workaround. A rotation may leave the scroll position fractionally
+  off-boundary until the next swipe re-settles it — cosmetic, not a
+  navigation bug (the active slide/URL stay correct). Worth a small upstream
+  DS enhancement if it proves annoying in practice.
 - **Task detail is `@sovereignfs/ui`'s `Sheet`** (no `title` — a task's own
   composite header, the checkbox + editable title + star + close row, is
   richer than `Sheet`'s built-in `OverlayHeader` can express, so the content
@@ -408,11 +428,15 @@ server-rendered output) at all.
 ## Versioning
 
 This plugin follows its own semver, independent of the platform version:
+
 - `fix/` → patch (0.0.x)
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.15.0**
+Current version: **0.16.1** (`0.16.0` → `0.16.1` is workstream 0001 leg 1 — the
+mobile carousel migrated from a hand-rolled scroll-snap/settle/pathname-sync
+implementation to `@sovereignfs/ui`'s `SwipableMobileCarousel` +
+`useCarouselRouteSync`, per `docs/workstreams/0001-mobile-ds-primitive-migration.md`.)
 
 ## Running locally
 

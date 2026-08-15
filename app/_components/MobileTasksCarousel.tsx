@@ -1,8 +1,13 @@
 'use client';
 
-import { Sheet } from '@sovereignfs/ui';
+import {
+  Sheet,
+  SwipableMobileCarousel,
+  SwipableMobileCarouselSlide,
+  useCarouselRouteSync,
+} from '@sovereignfs/ui';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import ListSidebar from '../ListSidebar';
 import TasksPane from '../[listId]/TasksPane';
 import { getOrCreatePrefs, getStarredTasks, getTask, getTasks } from '../_lib/actions';
@@ -46,32 +51,37 @@ function indexForPathname(pathname: string, lists: ListRow[]): number {
   return lists.length > 0 ? 2 : 0;
 }
 
+/** Inverse of indexForPathname — the path to navigate to once a swipe
+ *  settles on a given slide index. Falls back to the bare /tasks index route
+ *  if the index no longer has a matching list (e.g. the active list was just
+ *  deleted out from under an in-flight settle). */
+function pathForIndex(index: number, lists: ListRow[]): string {
+  if (index === 0) return '/tasks';
+  if (index === 1) return '/tasks/starred';
+  const list = lists[index - 2];
+  return list ? `/tasks/${list.id}` : '/tasks';
+}
+
 export default function MobileTasksCarousel({ lists, starredCount, refreshSignal }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didSyncInitialUrl = useRef(false);
   const isFirstRefreshSignal = useRef(true);
-  // Set right before the scroll-settle handler below calls router.replace, so
-  // the pathname-sync effect can tell "this pathname change is the carousel's
-  // own settle, already reflected in activeIndex" apart from a genuinely
-  // external navigation (a tapped <Link>, browser back/forward, a bookmark).
-  // Needed specifically because indexForPathname can't distinguish those two
-  // cases for a bare `/tasks` pathname: settling on slide 0 (Lists index)
-  // produces the same pathname as a fresh cold load, whose fallback prefers
-  // the first list (index 1) — without this flag, settling on slide 0 was
-  // immediately overridden back to index 1 once the router's pathname state
-  // caught up a render or two later.
-  const isInternalNav = useRef(false);
 
-  const [activeIndex, setActiveIndex] = useState(() => indexForPathname(pathname, lists));
-  const initialIndexRef = useRef(activeIndex);
-  const activeIndexRef = useRef(activeIndex);
-  useEffect(() => {
-    activeIndexRef.current = activeIndex;
-  }, [activeIndex]);
+  // Centralizes the pathname↔slide-index mapping and the "was this pathname
+  // change our own settle, or an external navigation" distinction that used
+  // to be hand-rolled here (isInternalNav/didMountPathSync) — see
+  // useCarouselRouteSync's own doc comment. indexForPathname/pathForIndex
+  // read `lists` via closure; identity doesn't matter since the hook stores
+  // them in refs.
+  const { activeIndex, onSettle } = useCarouselRouteSync({
+    indexForPathname: (path) => indexForPathname(path, lists),
+    pathForIndex: (index) => pathForIndex(index, lists),
+    pathname,
+    onNavigate: (path) => router.replace(path, { scroll: false }),
+  });
+
   const [listState, setListState] = useState<Record<string, ListState>>({});
   const [detailTask, setDetailTask] = useState<DetailTask | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -82,7 +92,7 @@ export default function MobileTasksCarousel({ lists, starredCount, refreshSignal
   const activeIsStarred = activeIndex === 1;
   // Whichever cache key (real list id or STARRED_LIST_ID) the current slide
   // reads from — unifies the two into one lookup for listState below.
-  const activeListId = activeIsStarred ? STARRED_LIST_ID : activeList?.id ?? null;
+  const activeListId = activeIsStarred ? STARRED_LIST_ID : (activeList?.id ?? null);
   const taskIdParam = searchParams.get('task');
 
   const loadList = useCallback(async (listId: string) => {
@@ -113,7 +123,10 @@ export default function MobileTasksCarousel({ lists, starredCount, refreshSignal
       // real list's own showCompleted before any prefs row exists.
       if (listId === STARRED_LIST_ID) {
         const tasks = await getStarredTasks();
-        setListState((s) => ({ ...s, [listId]: { tasks, showCompleted: false, status: 'loaded' } }));
+        setListState((s) => ({
+          ...s,
+          [listId]: { tasks, showCompleted: false, status: 'loaded' },
+        }));
         return;
       }
       const [tasks, prefs] = await Promise.all([getTasks(listId), getOrCreatePrefs(listId)]);
@@ -204,88 +217,6 @@ export default function MobileTasksCarousel({ lists, starredCount, refreshSignal
     }
   }, [pathname, lists, router]);
 
-  // Initial scroll position, once — subsequent activeIndex changes come from
-  // the user's own scroll gesture and must not be fought with a re-snap.
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    el.scrollTo({ left: initialIndexRef.current * el.clientWidth, behavior: 'instant' });
-  }, []);
-
-  // Sync to the pathname whenever it changes for a reason other than the
-  // carousel's own scroll-settle handler below — e.g. tapping a list row's
-  // <Link> on the Lists index slide (ListSidebar), which navigates but never
-  // touches scrollLeft itself.
-  //
-  // Can't rely solely on comparing newIndex to activeIndexRef here: settling
-  // on slide 0 (the Lists index) also replaces the URL to the bare `/tasks`
-  // pathname, which indexForPathname can't tell apart from a fresh cold
-  // load — its fallback for that exact pathname prefers the first list
-  // (index 1), not index 0. Once Next's router state caught up with that
-  // replace a render later, this effect saw pathname go from `/tasks/x` to
-  // `/tasks`, recomputed newIndex as 1 via the fallback, and smooth-scrolled
-  // straight back to the first list a moment after the user had swiped away
-  // from it. isInternalNav (set right before that specific router.replace)
-  // marks the change as already accounted for and skips this resync once.
-  const didMountPathSync = useRef(false);
-  useEffect(() => {
-    if (!didMountPathSync.current) {
-      didMountPathSync.current = true;
-      return;
-    }
-    if (isInternalNav.current) {
-      isInternalNav.current = false;
-      return;
-    }
-    const newIndex = indexForPathname(pathname, lists);
-    if (newIndex === activeIndexRef.current) return;
-    setActiveIndex(newIndex);
-    scrollRef.current?.scrollTo({ left: newIndex * scrollRef.current.clientWidth, behavior: 'smooth' });
-  }, [pathname, lists]);
-
-  // Re-align on viewport resize (e.g. orientation change) so the active
-  // slide stays framed correctly.
-  useEffect(() => {
-    function handleResize() {
-      const el = scrollRef.current;
-      if (!el) return;
-      el.scrollTo({ left: activeIndex * el.clientWidth, behavior: 'instant' });
-    }
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, [activeIndex]);
-
-  // Debounced "settled" detection — avoids depending on the newer `scrollend`
-  // event, which pre-17.4 iOS Safari/WKWebView (still in use per this
-  // plugin's own iOS PWA history) doesn't support.
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    function handleScroll() {
-      if (scrollTimer.current) clearTimeout(scrollTimer.current);
-      scrollTimer.current = setTimeout(() => {
-        const current = scrollRef.current;
-        if (!current) return;
-        const width = current.clientWidth;
-        if (!width) return;
-        const newIndex = Math.round(current.scrollLeft / width);
-        if (newIndex === activeIndexRef.current) return;
-        setActiveIndex(newIndex);
-        const targetList = newIndex >= 2 ? (lists[newIndex - 2] ?? null) : null;
-        const newPath = newIndex === 0 ? '/tasks' : newIndex === 1 ? '/tasks/starred' : null;
-        isInternalNav.current = true;
-        router.replace(newPath ?? (targetList ? `/tasks/${targetList.id}` : '/tasks'), {
-          scroll: false,
-        });
-      }, 120);
-    }
-    el.addEventListener('scroll', handleScroll, { passive: true });
-    return () => {
-      el.removeEventListener('scroll', handleScroll);
-      if (scrollTimer.current) clearTimeout(scrollTimer.current);
-    };
-  }, [lists, router]);
-
   // Task detail sheet: driven by the ?task= param, same convention as desktop.
   useEffect(() => {
     if (!taskIdParam) {
@@ -350,11 +281,22 @@ export default function MobileTasksCarousel({ lists, starredCount, refreshSignal
 
   return (
     <div className={styles.wrap}>
-      <div className={styles.scroller} ref={scrollRef}>
-        <div className={styles.slide}>
+      <SwipableMobileCarousel
+        activeIndex={activeIndex}
+        onSettle={onSettle}
+        aria-label="Task lists"
+        // No dots at all with zero real lists — a brand-new account only has
+        // the Lists index + the (empty, meaningless at that point) Starred
+        // slide, and showing a 2-dot indicator for that reads as more
+        // navigable content than actually exists. Matches the old manual
+        // dots' identical `lists.length > 0` gate.
+        renderIndicator={lists.length > 0 ? undefined : null}
+      >
+        <SwipableMobileCarouselSlide slideKey="index" label="Lists">
           <ListSidebar lists={lists} starredCount={starredCount} />
-        </div>
-        <div className={styles.slide}>
+        </SwipableMobileCarouselSlide>
+
+        <SwipableMobileCarouselSlide slideKey={STARRED_LIST_ID} label="Starred">
           {starredState && starredState.status !== 'loading' ? (
             <TasksPane
               list={{ id: STARRED_LIST_ID, title: 'Starred', color: null, openCount: 0 }}
@@ -369,11 +311,12 @@ export default function MobileTasksCarousel({ lists, starredCount, refreshSignal
           ) : (
             <div className={styles.slideLoading}>Loading…</div>
           )}
-        </div>
+        </SwipableMobileCarouselSlide>
+
         {lists.map((list) => {
           const state = listState[list.id];
           return (
-            <div className={styles.slide} key={list.id}>
+            <SwipableMobileCarouselSlide key={list.id} slideKey={list.id} label={list.title}>
               {state && state.status !== 'loading' ? (
                 <TasksPane
                   list={list}
@@ -387,21 +330,10 @@ export default function MobileTasksCarousel({ lists, starredCount, refreshSignal
               ) : (
                 <div className={styles.slideLoading}>Loading…</div>
               )}
-            </div>
+            </SwipableMobileCarouselSlide>
           );
         })}
-      </div>
-
-      {lists.length > 0 && (
-        <div className={styles.dots} aria-hidden>
-          {['index', STARRED_LIST_ID, ...lists.map((l) => l.id)].map((key, i) => (
-            <span
-              key={key}
-              className={[styles.dot, i === activeIndex ? styles.dotActive : ''].join(' ')}
-            />
-          ))}
-        </div>
-      )}
+      </SwipableMobileCarousel>
 
       <Sheet open={showDetailOverlay} onClose={closeDetail} aria-label="Task details">
         {displayDetailTask && activeListId ? (
