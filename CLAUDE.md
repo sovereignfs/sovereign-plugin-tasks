@@ -467,14 +467,28 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.18.6** (`0.18.5` → `0.18.6` fixes the mobile Apps
+Current version: **0.18.7** (`0.18.6` → `0.18.7` extends the same
+`translateZ(0)` compositing-layer fix from `TaskItem.module.css`'s
+`.rowContainer` (0.18.5) to the plugin's other three `position: sticky`
+elements, reported live as a large empty gap opening up above the list
+content during a fast scroll — `TasksPane.module.css`'s `.stickyHeader`,
+`TaskDetailPane.module.css`'s `.top`, and `BulkActionBar.module.css`'s `.bar`.
+Same root cause (WebKit's momentum-scroll re-tiling can leave a
+non-compositing sticky element stale/blank for a stretch of frames instead of
+repainting at its stuck position), applied by direct analogy rather than a
+fresh live reproduction — that class of bug isn't reliably reproducible in
+this environment's Chromium-based tooling, only confirmed live on a real iOS
+Safari session for the original `.rowContainer` case. Verified the CSS rule
+itself is live (`getComputedStyle` on `.stickyHeader` resolves `transform` to
+`matrix(1, 0, 0, 1, 0, 0)`), not that the underlying jank is empirically gone.
+`0.18.5` → `0.18.6` fixes the mobile Apps
 drawer and task-detail sheet both getting their bottom edge clipped by this
 plugin's own self-rendered `MobileFooter`, reported live as "Drawer has
 broken" (the Account/Console/Launcher row cut off) and "task edit screen
 content not scrollable" (the Delete button/List picker unreachable — not
 actually a scroll bug). Root cause: `@sovereignfs/ui`'s `Sheet`/`Drawer`
 both size their panel against `--sv-shell-footer-height` so it stops above
-the footer instead of sliding underneath it — a variable the *platform*
+the footer instead of sliding underneath it — a variable the _platform_
 shell sets for its own `MobileNav`, but this plugin opts out of that
 (`shellConfig.mobileFooter: false`) and renders its own footer instead,
 which the platform has no way to know the height of. The variable was

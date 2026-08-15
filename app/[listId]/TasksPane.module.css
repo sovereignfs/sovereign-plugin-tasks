@@ -39,6 +39,15 @@
   z-index: 2;
   padding-top: var(--sv-space-5);
   background-color: var(--tasks-pane-bg, var(--sv-color-surface));
+  /* Same WebKit momentum-scroll re-tiling quirk as TaskItem.module.css's
+     .rowContainer (see its own comment) — a position: sticky element with
+     no compositing layer of its own can go stale/blank for a stretch of
+     frames during a fast scroll on iOS Safari instead of repainting at its
+     stuck position, reported live as a large empty gap opening up above
+     the list content where the header should be. translateZ(0) promotes it
+     to its own layer, rasterized independently of the scroller's tile
+     grid. */
+  transform: translateZ(0);
 }
 
 .header {
