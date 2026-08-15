@@ -467,7 +467,33 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.18.5** (`0.18.4` → `0.18.5` strengthens `TaskItem.module.css`'s
+Current version: **0.18.6** (`0.18.5` → `0.18.6` fixes the mobile Apps
+drawer and task-detail sheet both getting their bottom edge clipped by this
+plugin's own self-rendered `MobileFooter`, reported live as "Drawer has
+broken" (the Account/Console/Launcher row cut off) and "task edit screen
+content not scrollable" (the Delete button/List picker unreachable — not
+actually a scroll bug). Root cause: `@sovereignfs/ui`'s `Sheet`/`Drawer`
+both size their panel against `--sv-shell-footer-height` so it stops above
+the footer instead of sliding underneath it — a variable the *platform*
+shell sets for its own `MobileNav`, but this plugin opts out of that
+(`shellConfig.mobileFooter: false`) and renders its own footer instead,
+which the platform has no way to know the height of. The variable was
+never set, both overlays fell back to `bottom: 0` (full viewport), and
+since the footer's own `z-index: 101` beats the overlays' `100`, the
+footer visibly covered their last ~60px. Fixed by measuring the
+self-rendered footer's real height (`getBoundingClientRect()` in a
+`useLayoutEffect`, plus a `resize` listener for orientation changes —
+varies by device via `env(safe-area-inset-bottom)`, so not hardcoded) and
+setting `--sv-shell-footer-height` on the plugin's own wrapping element,
+which cascades to `Sheet`/`Drawer` via normal DOM inheritance regardless of
+their `position: fixed`. **First attempt used `ResizeObserver` instead —
+never fired even once**, in either the browser preview or a real WebKit
+iOS Simulator session, for reasons not fully root-caused; switched to a
+direct synchronous measurement instead, which worked immediately.
+Verified live end-to-end: both overlays' panels now stop exactly at the
+footer's top edge (`bottom: 751` in a 812px-tall viewport with a 61px
+footer), confirmed via `elementFromPoint` at the boundary landing on the
+overlay's own content, not the footer. `0.18.4` → `0.18.5` strengthens `TaskItem.module.css`'s
 `.rowContainer` fix for the swipe-actions flash during fast vertical scroll,
 reported live as still visible after `overflow: hidden` alone: that clips
 this element's own painted content but doesn't stop a stale raster tile from

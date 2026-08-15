@@ -12,7 +12,14 @@ import {
   useCarouselRouteSync,
 } from '@sovereignfs/ui';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import ListSidebar from '../ListSidebar';
 import TasksPane from '../[listId]/TasksPane';
 import { getOrCreatePrefs, getStarredTasks, getTask, getTasks } from '../_lib/actions';
@@ -142,6 +149,40 @@ export default function MobileTasksCarousel({
   const didSyncInitialUrl = useRef(false);
   const isFirstRefreshSignal = useRef(true);
   const [appsOpen, setAppsOpen] = useState(false);
+
+  // @sovereignfs/ui's Sheet/Drawer both size themselves against
+  // --sv-shell-footer-height so their panels stop above the footer instead
+  // of sliding underneath it (Sheet: `bottom: var(--sv-shell-footer-height,
+  // 0)`; Drawer's scrim: same). That variable is set by the *platform*
+  // shell for its own MobileNav — but this plugin declares
+  // `shellConfig.mobileFooter: false` and renders its own MobileFooter
+  // below instead, which the platform has no way to know about, so the
+  // variable is never set here and both fall back to 0: their panels
+  // extend all the way to the real viewport bottom and end up rendered
+  // *underneath* this footer (z-index 101 vs. the overlay's 100) — the
+  // footer visibly covers their last ~60px. Reported live as "Drawer has
+  // broken" (its bottom row of labels cut off) and "task edit screen
+  // content not scrollable" (the Delete button/List picker sat behind the
+  // footer, unreachable — not actually a scroll bug). Measured rather than
+  // hardcoded, since the footer's real height varies with
+  // env(safe-area-inset-bottom) across devices. A first version used
+  // ResizeObserver, which never fired even once in either the browser
+  // preview or a real WebKit simulator session — switched to a direct
+  // getBoundingClientRect() read in useLayoutEffect (plus a resize
+  // listener for orientation changes / dynamic Safari toolbars) instead,
+  // which is simpler and doesn't depend on ResizeObserver actually firing.
+  const footerRef = useRef<HTMLDivElement>(null);
+  const [footerHeight, setFooterHeight] = useState<number | null>(null);
+  useLayoutEffect(() => {
+    const el = footerRef.current;
+    if (!el) return;
+    function measure() {
+      if (el) setFooterHeight(el.getBoundingClientRect().height);
+    }
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, []);
 
   // Centralizes the pathname↔slide-index mapping and the "was this pathname
   // change our own settle, or an external navigation" distinction that used
@@ -377,7 +418,14 @@ export default function MobileTasksCarousel({
   const starredState = listState[STARRED_LIST_ID];
 
   return (
-    <div className={styles.wrap}>
+    <div
+      className={styles.wrap}
+      style={
+        footerHeight != null
+          ? ({ '--sv-shell-footer-height': `${footerHeight}px` } as CSSProperties)
+          : undefined
+      }
+    >
       <div className={styles.carouselArea}>
         <SwipableMobileCarousel
           activeIndex={activeIndex}
@@ -464,31 +512,36 @@ export default function MobileTasksCarousel({
           plugins. The center button uses the Launcher's own icon (same as
           the platform shell's MobileNav) rather than the generic default,
           so the two footers read as identical, not just similar. */}
-      <MobileFooter
-        onOpenApps={() => setAppsOpen(true)}
-        launcherOpen={appsOpen}
-        launcherIcon={
-          launcherIconUrl ? (
-            <img src={launcherIconUrl} alt="" aria-hidden className={styles.launcherIcon} />
-          ) : undefined
-        }
-        leftIcons={[
-          {
-            icon: <Icon name="menu" size="md" aria-hidden />,
-            label: 'Lists',
-            active: activeIndex === 0,
-            onClick: () => onSettle(0),
-          },
-        ]}
-        rightIcons={[
-          {
-            icon: <Icon name="search" size="md" aria-hidden />,
-            label: 'Search',
-            active: pathname === '/tasks/search',
-            onClick: () => router.push('/tasks/search'),
-          },
-        ]}
-      />
+      {/* MobileFooter itself isn't a forwardRef component, so the ref used
+          to measure its real rendered height (see footerRef's own doc
+          comment above) lives on this plain wrapper instead. */}
+      <div ref={footerRef}>
+        <MobileFooter
+          onOpenApps={() => setAppsOpen(true)}
+          launcherOpen={appsOpen}
+          launcherIcon={
+            launcherIconUrl ? (
+              <img src={launcherIconUrl} alt="" aria-hidden className={styles.launcherIcon} />
+            ) : undefined
+          }
+          leftIcons={[
+            {
+              icon: <Icon name="menu" size="md" aria-hidden />,
+              label: 'Lists',
+              active: activeIndex === 0,
+              onClick: () => onSettle(0),
+            },
+          ]}
+          rightIcons={[
+            {
+              icon: <Icon name="search" size="md" aria-hidden />,
+              label: 'Search',
+              active: pathname === '/tasks/search',
+              onClick: () => router.push('/tasks/search'),
+            },
+          ]}
+        />
+      </div>
 
       <MobileAppsDrawer
         open={appsOpen}
