@@ -7,19 +7,19 @@ then implemented; one branch/PR may cover several tasks when they touch the
 same surfaces in the same repo. Add new tasks as numbered sections; statuses:
 **planned** · **in progress** · **shipped** · **dropped**.
 
-| #   | Task                                                                      | Repo                                   | Status                |
-| --- | ------------------------------------------------------------------------- | -------------------------------------- | --------------------- |
-| 1   | Long-press drag-reorder (lists page + task rows)                          | sovereign-tasks                        | shipped ✅            |
-| 2   | Mark notifications read on click (bell panel)                             | **platform** (`sovereignfs/sovereign`) | shipped ✅            |
-| 3   | Virtual "Starred" list (all prioritized tasks in one view)                | sovereign-tasks                        | shipped ✅            |
-| 4   | Per-plugin push notification icon                                         | **platform** (`sovereignfs/sovereign`) | shipped ✅            |
-| 5   | JSON export/import (account-level data portability)                       | sovereign-tasks                        | shipped ✅            |
-| 6   | Sticky list header + add-task row while scrolling                         | sovereign-tasks                        | shipped ✅            |
-| 7   | De-dupe `loadList` to stop duplicate server-action bursts on mobile       | sovereign-tasks                        | shipped ✅            |
-| 8   | Fix `sdk.db.getClient()` returning the platform DB from schedule handlers | **platform** (`sovereignfs/sovereign`) | shipped ✅ (draft PR) |
-| 9   | Fix add-task appearing to do nothing on mobile                            | sovereign-tasks                        | shipped ✅            |
-| 10  | Investigate task-detail click race (wrong/no detail opens)                | sovereign-tasks                        | closed — not a bug    |
-| 11  | Tighten `SwipableMobileCarouselDots` spacing for many-list instances      | **platform** (`sovereignfs/sovereign`) | planned (deferred)    |
+| #   | Task                                                                      | Repo                                                     | Status                |
+| --- | ------------------------------------------------------------------------- | -------------------------------------------------------- | --------------------- |
+| 1   | Long-press drag-reorder (lists page + task rows)                          | sovereign-tasks                                          | shipped ✅            |
+| 2   | Mark notifications read on click (bell panel)                             | **platform** (`sovereignfs/sovereign`)                   | shipped ✅            |
+| 3   | Virtual "Starred" list (all prioritized tasks in one view)                | sovereign-tasks                                          | shipped ✅            |
+| 4   | Per-plugin push notification icon                                         | **platform** (`sovereignfs/sovereign`)                   | shipped ✅            |
+| 5   | JSON export/import (account-level data portability)                       | sovereign-tasks                                          | shipped ✅            |
+| 6   | Sticky list header + add-task row while scrolling                         | sovereign-tasks                                          | shipped ✅            |
+| 7   | De-dupe `loadList` to stop duplicate server-action bursts on mobile       | sovereign-tasks                                          | shipped ✅            |
+| 8   | Fix `sdk.db.getClient()` returning the platform DB from schedule handlers | **platform** (`sovereignfs/sovereign`)                   | shipped ✅ (draft PR) |
+| 9   | Fix add-task appearing to do nothing on mobile                            | sovereign-tasks                                          | shipped ✅            |
+| 10  | Investigate task-detail click race (wrong/no detail opens)                | sovereign-tasks                                          | closed — not a bug    |
+| 11  | Tighten `SwipableMobileCarouselDots` spacing for many-list instances      | **platform** (`sovereignfs/sovereign`) + sovereign-tasks | shipped ✅            |
 
 ---
 
@@ -1052,12 +1052,15 @@ event in the first place.
 
 ## Task 11 — Tighten `SwipableMobileCarouselDots` spacing for many-list instances
 
-**Status:** planned (deferred) — not implemented this pass.
-**Repo:** platform monorepo (`sovereignfs/sovereign`) — `SwipableMobileCarouselDots`
-is a shared Design System component (`packages/ui`), consumed by every plugin
-using `SwipableMobileCarousel`. Per this repo's DS-first rule, a spacing/density
-change belongs there, not as a plugin-local override. Branch type: `feat:` or
-`fix:` (platform), TBD at implementation.
+**Status:** shipped ✅ — platform PR
+[sovereignfs/sovereign#483](https://github.com/sovereignfs/sovereign/pull/483)
+(the DS component change), plugin branch `feat/compact-carousel-dots` (the
+adoption).
+**Repo:** platform monorepo (`sovereignfs/sovereign`) for the DS component
+change, sovereign-tasks for adopting it. `SwipableMobileCarouselDots` is a
+shared Design System component (`packages/ui`), consumed by every plugin
+using `SwipableMobileCarousel`. Per this repo's DS-first rule, the
+spacing/density change lives there, not as a plugin-local override.
 
 ### Problem
 
@@ -1068,14 +1071,55 @@ Starred + 10 real lists) that's roughly 328px of dots in a 375px viewport —
 plausibly reads as cramped/lengthy on an instance with more than a handful of
 lists.
 
-### Why deferred
+### Why this was previously deferred, and what changed
 
 Any change here affects every consumer of `SwipableMobileCarousel`
-(currently Tasks and Shopper, per the DS docs), not just this plugin. Needs a
-look at every current consumer before deciding between a new `density`/`size`
-prop vs. changing the shared default, which this pass didn't have scope for.
-Tracked here as a known, scoped finding for a future platform-repo task —
-not implemented in this pass.
+(currently Tasks and Shopper, per the DS docs) — `sovereign-shopper` isn't
+installed in this dev checkout, so its actual visual tolerance for a spacing
+change couldn't be verified directly. Rather than blindly changing the
+shared default (which would have affected Shopper sight-unseen) or
+continuing to defer, shipped as a genuinely opt-in **new prop** instead:
+`density?: 'default' | 'compact'` on `SwipableMobileCarouselDots`, default
+unchanged, so Shopper's spacing is provably untouched either way — no
+consumer audit was actually required once the design avoided a shared-default
+change.
+
+### Fix (implemented)
+
+Platform side (`packages/ui`): `density="compact"` halves the gap
+(`--sv-space-2` → `--sv-space-1`); only the gap changes, each dot keeps its
+own 20px hit target. New Storybook stories (`DotsManyDefault`/
+`DotsManyCompact`) reproduce the real 12-dot scenario at both densities.
+`docs/design-system.md` updated.
+
+This plugin (`app/_components/MobileTasksCarousel.tsx`): supplies its own
+`renderIndicator` forwarding the prop
+(`renderIndicator={(props) => <SwipableMobileCarouselDots {...props} density="compact" />}`)
+instead of leaving it `undefined` for the DS default — `SwipableMobileCarousel`'s
+own `renderIndicator` callback signature doesn't carry `density` itself, so
+opting in requires supplying the indicator explicitly, not a new pass-through
+prop on the carousel.
+
+### Files
+
+| File                                                                                                          | Change                                                  |
+| ------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `packages/ui/src/components/SwipableMobileCarouselDots/SwipableMobileCarouselDots.tsx` (platform repo)        | `density` prop                                          |
+| `packages/ui/src/components/SwipableMobileCarouselDots/SwipableMobileCarouselDots.module.css` (platform repo) | `.dotsCompact` rule                                     |
+| `packages/ui/src/stories/SwipableMobileCarousel.stories.tsx` (platform repo)                                  | `DotsManyDefault`/`DotsManyCompact` stories             |
+| `docs/design-system.md` (platform repo)                                                                       | `density` prop documented                               |
+| `app/_components/MobileTasksCarousel.tsx`                                                                     | custom `renderIndicator` forwarding `density="compact"` |
+
+### Verification
+
+1. `pnpm --filter @sovereignfs/ui typecheck` (platform) — clean.
+2. `pnpm exec tsc --noEmit` (this plugin's own `tsconfig.json`) — clean.
+3. `pnpm format:check && pnpm lint && pnpm typecheck && pnpm design:tokens:check && pnpm test`
+   (platform root, via the pre-push hook) — green; full suite (2245 passed).
+4. Live-verified end-to-end: confirmed via the live DOM that the
+   `dotsCompact` class applies on the running instance and the computed
+   `gap` drops from 8px to 4px, with all 14 dots (Lists + Starred + 12 real
+   lists in the test data) still rendering correctly.
 
 <!-- Add Task 12, … above this line as new numbered sections, and keep the
      index table at the top in sync. -->
