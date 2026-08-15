@@ -7,20 +7,21 @@ then implemented; one branch/PR may cover several tasks when they touch the
 same surfaces in the same repo. Add new tasks as numbered sections; statuses:
 **planned** · **in progress** · **shipped** · **dropped**.
 
-| #   | Task                                                                      | Repo                                                     | Status                        |
-| --- | ------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------- |
-| 1   | Long-press drag-reorder (lists page + task rows)                          | sovereign-tasks                                          | shipped ✅                    |
-| 2   | Mark notifications read on click (bell panel)                             | **platform** (`sovereignfs/sovereign`)                   | shipped ✅                    |
-| 3   | Virtual "Starred" list (all prioritized tasks in one view)                | sovereign-tasks                                          | shipped ✅                    |
-| 4   | Per-plugin push notification icon                                         | **platform** (`sovereignfs/sovereign`)                   | shipped ✅                    |
-| 5   | JSON export/import (account-level data portability)                       | sovereign-tasks                                          | shipped ✅                    |
-| 6   | Sticky list header + add-task row while scrolling                         | sovereign-tasks                                          | shipped ✅                    |
-| 7   | De-dupe `loadList` to stop duplicate server-action bursts on mobile       | sovereign-tasks                                          | shipped ✅                    |
-| 8   | Fix `sdk.db.getClient()` returning the platform DB from schedule handlers | **platform** (`sovereignfs/sovereign`)                   | shipped ✅ (draft PR)         |
-| 9   | Fix add-task appearing to do nothing on mobile                            | sovereign-tasks                                          | shipped ✅                    |
-| 10  | Investigate task-detail click race (wrong/no detail opens)                | sovereign-tasks                                          | closed — not a bug            |
-| 11  | Tighten `SwipableMobileCarouselDots` spacing for many-list instances      | **platform** (`sovereignfs/sovereign`) + sovereign-tasks | shipped ✅                    |
-| 12  | Fix invisible carousel dots; investigate swipe instability + header load  | **platform** (`sovereignfs/sovereign`)                   | partially shipped — see below |
+| #   | Task                                                                      | Repo                                                     | Status                                                            |
+| --- | ------------------------------------------------------------------------- | -------------------------------------------------------- | ----------------------------------------------------------------- |
+| 1   | Long-press drag-reorder (lists page + task rows)                          | sovereign-tasks                                          | shipped ✅                                                        |
+| 2   | Mark notifications read on click (bell panel)                             | **platform** (`sovereignfs/sovereign`)                   | shipped ✅                                                        |
+| 3   | Virtual "Starred" list (all prioritized tasks in one view)                | sovereign-tasks                                          | shipped ✅                                                        |
+| 4   | Per-plugin push notification icon                                         | **platform** (`sovereignfs/sovereign`)                   | shipped ✅                                                        |
+| 5   | JSON export/import (account-level data portability)                       | sovereign-tasks                                          | shipped ✅                                                        |
+| 6   | Sticky list header + add-task row while scrolling                         | sovereign-tasks                                          | shipped ✅                                                        |
+| 7   | De-dupe `loadList` to stop duplicate server-action bursts on mobile       | sovereign-tasks                                          | shipped ✅                                                        |
+| 8   | Fix `sdk.db.getClient()` returning the platform DB from schedule handlers | **platform** (`sovereignfs/sovereign`)                   | shipped ✅ (draft PR)                                             |
+| 9   | Fix add-task appearing to do nothing on mobile                            | sovereign-tasks                                          | shipped ✅                                                        |
+| 10  | Investigate task-detail click race (wrong/no detail opens)                | sovereign-tasks                                          | closed — not a bug                                                |
+| 11  | Tighten `SwipableMobileCarouselDots` spacing for many-list instances      | **platform** (`sovereignfs/sovereign`) + sovereign-tasks | shipped ✅                                                        |
+| 12  | Fix invisible carousel dots; investigate swipe instability + header load  | **platform** (`sovereignfs/sovereign`)                   | shipped ✅ (dots) + drag-vs-swipe conflict still open — see below |
+| 13  | Fix carousel auto-swiping back to the previous slide                      | **platform** (`sovereignfs/sovereign`)                   | shipped ✅ (draft PR)                                             |
 
 ---
 
@@ -1242,5 +1243,120 @@ Finding 2 (swipe-vs-drag-reorder gesture conflict) needs a developer decision
 on which trade-off to take before it can be fixed. Raised directly rather
 than filed as a silent TODO, since it affects a shipped, documented feature.
 
-<!-- Add Task 13, … above this line as new numbered sections, and keep the
+## Task 13 — Fix carousel auto-swiping back to the previous slide
+
+**Status:** shipped ✅ (platform, draft PR). No plugin code changed.
+
+### Problem
+
+Two further live reports, after Task 12's fix shipped: "sometimes when I
+swipe to a new slide, it simply auto swipe to the opposite side" and "header
+also not visible when loading" (recurring). The user offered a screen
+recording rather than a live-testing session; a prior attempt to reproduce
+"auto swipe to the opposite side" via synthetic touch gestures on the iPhone
+17 Simulator (rapid same-direction swipes, quick direction reversals) failed
+to trigger it — it needed something a scripted `touch_path` wasn't producing.
+
+### Investigation
+
+Reviewed the user's `.mov` recording frame-by-frame with `ffmpeg` rather than
+guessing further from live testing that had already failed to reproduce
+anything:
+
+1. `ffprobe` for duration/resolution (50.4s, 296×640).
+2. `ffmpeg`'s `select='gt(scene,0.02)'` scene-change filter to pull ~28
+   candidate transition timestamps out of the 50s recording — continuous
+   scroll-snap motion doesn't trigger typical scene-cut thresholds, so a very
+   low threshold was needed to catch swipe-transition frames at all.
+3. Extracted full-resolution frames at each timestamp, tiled into contact
+   sheets (`ffmpeg xstack`, no ImageMagick/PIL available in this
+   environment) for fast visual review.
+4. Once a suspicious window was found, re-extracted at 50–200ms granularity
+   around it to see the exact sequence.
+
+**Finding 1 (confirmed bug).** At t≈19.50s: `List 6` fully loaded, tasks
+visible. t≈19.55s: `List 6`'s title and tabs still shown, task rows already
+gone. t≈19.60s: body fully blank. t≈19.65s: `List 5` (the _previous_ slide)
+fully loaded, tasks visible. The whole sequence took ~150ms with no visible
+touch input — the carousel had settled on `List 6`, then reverted to `List
+5` on its own. This is the "auto swipe to the opposite side" report, and it
+being _List 6 that was mid-load_ at that exact moment (task rows for that
+slide were still streaming in) was the key clue.
+
+Root cause, confirmed with a unit-test repro before touching any component
+code: `packages/ui`'s `useSnapCarousel.ts` computed a "settled" slide index
+off of **any** `scroll` event on the container, with no check that the event
+came from an actual gesture. `scroll-snap-type: mandatory` guarantees the
+container only rests at an exact multiple of the slide width once truly
+settled — but a slide's own content changing size while still loading (extra
+task rows being added to the DOM) can nudge `scrollLeft` by a fraction of a
+slide width even with no touch input at all. If that stray nudge happened to
+round to a different index than the one already settled on, the hook fired a
+second, contradicting `onSettle` — silently snapping the carousel back.
+Reproduced directly: a lone extra `scroll` event with no preceding touch
+input was enough to trigger a second, wrong `onSettle` call in a unit test.
+
+**Fixed in the platform repo**
+(`fix/carousel-settle-drift-detection`, `packages/ui` `0.56.1` → `0.56.2`):
+the settle-check now requires a recent real-input timestamp (touch, wheel/
+trackpad, or a held-button mouse drag), with slack for the browser's own
+momentum/snap-correction to keep settling shortly after the finger lifts. A
+scroll event with no recent input behind it is treated as drift, not a
+settle. **First attempt used a second parallel timer to track "is a gesture
+active" instead of a timestamp comparison — this broke every existing
+settle-detection test**, not just new ones: two independently-scheduled
+`setTimeout` calls with the identical delay, started microseconds apart,
+have no guaranteed firing order, and the gesture-deactivation timer
+consistently ran before the settle-check timer in the test environment,
+making every real settle look like drift. Switched to comparing `Date.now()`
+against a plain ref at check time, which has no such ordering dependency.
+No files changed in this plugin's own repo.
+
+**Finding 2 (not a bug — video-encoding artifact).** A single frame around
+t≈43.4s showed a solid green rectangle covering half the screen; another
+around t≈43.0s showed a star column briefly flashing wrong colors (lime,
+dark green, magenta instead of orange). Re-extracted at 0.1–0.2s granularity
+around both: gone within ±0.2s in every case, never persisting across
+multiple frames. Consistent with a known WebKit momentum-scroll re-tiling
+quirk already documented elsewhere in this codebase
+(`TaskItem.module.css`'s `.rowContainer` comment: "momentum-scroll re-tiling
+can let a z-index-stacked sibling layer flash through for a single frame")
+compounded by ReplayKit video-encoding compression artifacts at a scene-cut
+boundary — not an application bug, and not investigated further.
+
+**Finding 3 (re-confirmed working as designed).** The recurring
+"header not visible when loading" report was checked again directly against
+the same recording, at multiple points where a slide was mid-load (e.g.
+`List 4` at t≈16.4s): the title (`List 4`) was visible immediately, with the
+task list area blank beneath it for a brief window before content arrived —
+matching `SlideHeaderSkeleton`'s documented design (title first, no count/
+tabs until loaded). No occurrence of the title itself being missing was
+found anywhere in the recording. It's likely this report describes the same
+underlying sensation as Finding 1 above (the carousel appearing to freeze or
+revert makes the _new_ slide's header look like it "never loaded"), now
+fixed by the same change — worth confirming with the user on their next
+pass rather than assumed closed.
+
+### Files
+
+| File                                                                                                     | Change                                                      |
+| -------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `packages/ui/src/hooks/useSnapCarousel.ts` (platform repo)                                               | Gate settle-check on a recent real-input timestamp          |
+| `packages/ui/src/hooks/__tests__/useSnapCarousel.test.tsx` (platform repo)                               | Regression tests for drift-ignored + momentum-still-settles |
+| `packages/ui/src/components/SwipableMobileCarousel/__tests__/SwipableMobileCarousel.test.tsx` (platform) | Updated existing settle test for the new gating             |
+
+No files changed in this plugin's repo for this task.
+
+### Verification
+
+1. `pnpm vitest run useSnapCarousel SwipableMobileCarousel useCarouselRouteSync`
+   (platform) — 27 passed, including 2 new regression tests.
+2. `pnpm typecheck`, `pnpm design:tokens:check` (platform) — clean.
+3. Full pre-push suite (`pnpm verify:push`) — 2248 passed.
+4. Live re-verification against the running instance was not possible — the
+   dev server on the port the user had been testing against was no longer
+   reachable by the time the fix was ready. Flagged to the user; worth a
+   fresh live pass on the next session before considering this fully closed.
+
+<!-- Add Task 14, … above this line as new numbered sections, and keep the
      index table at the top in sync. -->
