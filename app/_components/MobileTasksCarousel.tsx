@@ -7,6 +7,7 @@ import {
   Sheet,
   Spinner,
   SwipableMobileCarousel,
+  SwipableMobileCarouselDots,
   SwipableMobileCarouselSlide,
   useCarouselRouteSync,
 } from '@sovereignfs/ui';
@@ -386,8 +387,22 @@ export default function MobileTasksCarousel({
           // the Lists index + the (empty, meaningless at that point) Starred
           // slide, and showing a 2-dot indicator for that reads as more
           // navigable content than actually exists. Matches the old manual
-          // dots' identical `lists.length > 0` gate.
-          renderIndicator={lists.length > 0 ? undefined : null}
+          // dots' identical `lists.length > 0` gate. `density="compact"`
+          // (RFC-less DS addition, packages/ui) halves the gap between dots —
+          // an instance with more than a handful of lists otherwise reads as
+          // a long, cramped row in a 375px viewport. See
+          // docs/ux-improvement-plan.md Task 11 for the full investigation.
+          renderIndicator={
+            lists.length > 0
+              ? (props) => (
+                  <SwipableMobileCarouselDots
+                    {...props}
+                    aria-label="Task lists"
+                    density="compact"
+                  />
+                )
+              : null
+          }
         >
           <SwipableMobileCarouselSlide slideKey="index" label="Lists">
             <ListSidebar lists={lists} starredCount={starredCount} />

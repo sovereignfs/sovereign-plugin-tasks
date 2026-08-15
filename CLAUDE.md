@@ -467,7 +467,21 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.18.3** (`0.18.2` → `0.18.3` fixes add-task appearing to
+Current version: **0.18.4** (`0.18.3` → `0.18.4` adopts `@sovereignfs/ui`'s
+new `SwipableMobileCarouselDots` `density="compact"` prop (platform
+`packages/ui` `0.56.0`) for the mobile list-switcher dots: halves the gap
+between dots (`--sv-space-2` → `--sv-space-1`), since an instance with more
+than a handful of lists (12 in the reproducing case — Lists index + Starred +
+10 real lists) showed roughly 328px of dots in a 375px viewport. Only the
+gap changes; each dot keeps its own 20px hit target. `MobileTasksCarousel.tsx`
+now supplies its own `renderIndicator` forwarding the prop, instead of
+leaving it `undefined` for the DS default — the DS itself defaults to
+`'default'` density, so this had to be an explicit opt-in here, not a
+shared-default change (`sovereign-shopper`, the DS's other named consumer of
+this component, is unaffected). Verified live: confirmed via the DOM that
+the `dotsCompact` class applies and the computed gap drops from 8px to 4px
+with all 14 dots still rendering. See `docs/ux-improvement-plan.md` Task 11
+for the full investigation. `0.18.2` → `0.18.3` fixes add-task appearing to
 do nothing on mobile: typing a task and pressing Enter didn't clear the
 input, update the count, or show the row until some unrelated navigation
 happened to re-render the list — the task was actually being created the
