@@ -370,6 +370,19 @@ server-rendered output) at all.
   and lets the carousel's cache survive route changes (a real prop-threaded
   alternative would force a remount on every swipe-triggered navigation,
   defeating the "no loading flash" point).
+- **Loading slides keep their header (workstream 0001 leg 6)**: a cold load
+  or a multi-slide jump (dot indicator, list-picker) can still land on a slide
+  whose cache is genuinely empty — a single adjacent swipe never does (see
+  above), but landing more than one slide away skips the prefetch. For that
+  case, `SlideHeaderSkeleton` (in `MobileTasksCarousel.tsx`) renders while
+  `listState[id].status === 'loading'`: a plain, non-interactive echo of
+  `TasksPane`'s own title row (dot/star + title, no count/filter/menu — none
+  of that is known yet) with `@sovereignfs/ui`'s `Spinner` centered below it
+  in place of the task rows. Replaces the previous full-slide "Loading…"
+  placeholder, which blanked the list name along with everything else.
+  Deliberately not `TasksPane` itself mounted with an empty `initialTasks`
+  array — that would flash a real "0 tasks"/empty-state body first, a
+  different and worse jump than the one being fixed.
 - **`router.refresh()` still works**: `MobileAwareShell` passes `children`
   through to the carousel as `refreshSignal` — not to render, purely as a
   signal. Every `router.refresh()` call already scattered through
@@ -454,7 +467,22 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.17.0** (`0.16.1` → `0.17.0` is workstream 0001 leg 5 —
+Current version: **0.18.0** (`0.17.0` → `0.18.0` is workstream 0001 leg 6 — the
+mobile carousel's list header (title + colour dot/star) now stays on screen
+while a slide's tasks are still loading, instead of the whole slide going
+blank behind a centered "Loading…" placeholder. `MobileTasksCarousel.tsx`'s
+`SlideHeaderSkeleton` renders a plain, non-interactive echo of `TasksPane`'s
+own title row (dot/star + title only — no count/filter/menu, none of that is
+known yet) while `listState[id].status === 'loading'`, with `@sovereignfs/ui`'s
+`Spinner` centered below it in place of the task rows; swapped for `TasksPane`'s
+own real header the moment loading finishes. Deliberately not implemented by
+mounting `TasksPane` itself with an empty `initialTasks` array — that would
+flash a real "0 tasks"/empty-state body before the actual data replaces it,
+a different and worse jump than the one being fixed. Verified with a
+temporary artificial delay in `getTasks` (reverted before commit): polled the
+DOM every 150ms across a multi-list load and confirmed the header's title
+text (`Groceries`, `Work`) never disappeared for the full ~2.4s window. `0.16.1`
+→ `0.17.0` is workstream 0001 leg 5 —
 the mobile footer's left icon now opens the Lists slide instead of doing
 nothing plugin-specific; a real feature, not a refactor, hence the minor
 bump rather than a patch. `shellConfig.mobileFooter: false` plus a

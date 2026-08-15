@@ -5,6 +5,7 @@ import {
   MobileAppsDrawer,
   MobileFooter,
   Sheet,
+  Spinner,
   SwipableMobileCarousel,
   SwipableMobileCarouselSlide,
   useCarouselRouteSync,
@@ -14,11 +15,59 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import ListSidebar from '../ListSidebar';
 import TasksPane from '../[listId]/TasksPane';
 import { getOrCreatePrefs, getStarredTasks, getTask, getTasks } from '../_lib/actions';
+import { listDotColor } from '../_lib/colors';
 import type { ListRow, TaskRow } from '../_lib/types';
 import { STARRED_LIST_ID } from '../_lib/virtualLists';
 import TaskDetailPane, { type DetailTask } from './TaskDetailPane';
 import type { FooterAppEntry } from './MobileAwareShell';
 import styles from './MobileTasksCarousel.module.css';
+
+/**
+ * Stand-in for TasksPane's own header while a slide's tasks are still
+ * loading — keeps the list name on screen immediately (from `lists`, already
+ * known synchronously, no fetch needed) instead of the whole slide going
+ * blank behind a centered "Loading…" placeholder. Deliberately a plain,
+ * non-interactive echo of TasksPane's real title row (dot/star + title only,
+ * no count/filter/menu — none of that is known yet) rather than mounting
+ * TasksPane itself with an empty task array, which would flash a real "0
+ * tasks"/empty-state body before the actual data replaces it. Swapped out
+ * for TasksPane's own header the moment loading finishes — this only ever
+ * exists for that brief window. */
+function SlideHeaderSkeleton({
+  title,
+  color,
+  starred,
+}: {
+  title: string;
+  color: string | null;
+  /** Mirrors TasksPane's own virtualList check — a real list can itself have
+   *  a null color (pre-existing rows saved before color became mandatory,
+   *  see colors.ts), so this needs its own explicit flag rather than
+   *  overloading `color === null` to also mean "this is the Starred slide". */
+  starred: boolean;
+}) {
+  return (
+    <div className={styles.slideHeader}>
+      <div className={styles.slideHeaderTitleRow}>
+        {starred ? (
+          <span className={styles.slideHeaderStarredIcon} aria-hidden>
+            ★
+          </span>
+        ) : (
+          <span
+            className={styles.slideHeaderDot}
+            style={{ background: listDotColor(color) }}
+            aria-hidden
+          />
+        )}
+        <h1 className={styles.slideHeaderTitle}>{title}</h1>
+      </div>
+      <div className={styles.slideHeaderBody}>
+        <Spinner size="md" label={`Loading ${title}…`} />
+      </div>
+    </div>
+  );
+}
 
 function monogram(name: string): string {
   const trimmed = name.trim();
@@ -334,7 +383,7 @@ export default function MobileTasksCarousel({
                 virtualList="starred"
               />
             ) : (
-              <div className={styles.slideLoading}>Loading…</div>
+              <SlideHeaderSkeleton title="Starred" color={null} starred />
             )}
           </SwipableMobileCarouselSlide>
 
@@ -353,7 +402,7 @@ export default function MobileTasksCarousel({
                     onTaskFieldPatch={(taskId, patch) => patchTask(list.id, taskId, patch)}
                   />
                 ) : (
-                  <div className={styles.slideLoading}>Loading…</div>
+                  <SlideHeaderSkeleton title={list.title} color={list.color} starred={false} />
                 )}
               </SwipableMobileCarouselSlide>
             );
