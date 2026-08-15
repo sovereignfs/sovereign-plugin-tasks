@@ -1,6 +1,9 @@
 'use client';
 
 import {
+  Icon,
+  MobileAppsDrawer,
+  MobileFooter,
   Sheet,
   SwipableMobileCarousel,
   SwipableMobileCarouselSlide,
@@ -14,7 +17,15 @@ import { getOrCreatePrefs, getStarredTasks, getTask, getTasks } from '../_lib/ac
 import type { ListRow, TaskRow } from '../_lib/types';
 import { STARRED_LIST_ID } from '../_lib/virtualLists';
 import TaskDetailPane, { type DetailTask } from './TaskDetailPane';
+import type { FooterAppEntry } from './MobileAwareShell';
 import styles from './MobileTasksCarousel.module.css';
+
+function monogram(name: string): string {
+  const trimmed = name.trim();
+  if (!trimmed) return '';
+  const [first = '', second = ''] = trimmed.split(/\s+/);
+  return (second ? first.charAt(0) + second.charAt(0) : first.slice(0, 2)).toUpperCase();
+}
 
 interface ListState {
   tasks: TaskRow[];
@@ -26,6 +37,12 @@ interface Props {
   lists: ListRow[];
   /** Count of active starred tasks — see ListSidebar's own doc comment. */
   starredCount: number;
+  /** Every other launchable plugin, for the self-rendered Apps drawer below
+   *  — see this component's own doc comment on the footer for why. */
+  footerApps: FooterAppEntry[];
+  /** The Launcher's own icon, for the footer's center Apps button — see
+   *  MobileAwareShell's doc comment on this same prop. */
+  launcherIconUrl?: string;
   /** Changes identity on every server re-render of the plugin's routes (i.e.
    *  whenever anything anywhere calls router.refresh()). This carousel's own
    *  data lives in client state, decoupled from page.tsx's server props (see
@@ -62,12 +79,19 @@ function pathForIndex(index: number, lists: ListRow[]): string {
   return list ? `/tasks/${list.id}` : '/tasks';
 }
 
-export default function MobileTasksCarousel({ lists, starredCount, refreshSignal }: Props) {
+export default function MobileTasksCarousel({
+  lists,
+  starredCount,
+  footerApps,
+  launcherIconUrl,
+  refreshSignal,
+}: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const didSyncInitialUrl = useRef(false);
   const isFirstRefreshSignal = useRef(true);
+  const [appsOpen, setAppsOpen] = useState(false);
 
   // Centralizes the pathname↔slide-index mapping and the "was this pathname
   // change our own settle, or an external navigation" distinction that used
@@ -281,59 +305,121 @@ export default function MobileTasksCarousel({ lists, starredCount, refreshSignal
 
   return (
     <div className={styles.wrap}>
-      <SwipableMobileCarousel
-        activeIndex={activeIndex}
-        onSettle={onSettle}
-        aria-label="Task lists"
-        // No dots at all with zero real lists — a brand-new account only has
-        // the Lists index + the (empty, meaningless at that point) Starred
-        // slide, and showing a 2-dot indicator for that reads as more
-        // navigable content than actually exists. Matches the old manual
-        // dots' identical `lists.length > 0` gate.
-        renderIndicator={lists.length > 0 ? undefined : null}
-      >
-        <SwipableMobileCarouselSlide slideKey="index" label="Lists">
-          <ListSidebar lists={lists} starredCount={starredCount} />
-        </SwipableMobileCarouselSlide>
+      <div className={styles.carouselArea}>
+        <SwipableMobileCarousel
+          activeIndex={activeIndex}
+          onSettle={onSettle}
+          aria-label="Task lists"
+          // No dots at all with zero real lists — a brand-new account only has
+          // the Lists index + the (empty, meaningless at that point) Starred
+          // slide, and showing a 2-dot indicator for that reads as more
+          // navigable content than actually exists. Matches the old manual
+          // dots' identical `lists.length > 0` gate.
+          renderIndicator={lists.length > 0 ? undefined : null}
+        >
+          <SwipableMobileCarouselSlide slideKey="index" label="Lists">
+            <ListSidebar lists={lists} starredCount={starredCount} />
+          </SwipableMobileCarouselSlide>
 
-        <SwipableMobileCarouselSlide slideKey={STARRED_LIST_ID} label="Starred">
-          {starredState && starredState.status !== 'loading' ? (
-            <TasksPane
-              list={{ id: STARRED_LIST_ID, title: 'Starred', color: null, openCount: 0 }}
-              lists={lists}
-              initialTasks={starredState.tasks}
-              showCompleted={false}
-              listId={STARRED_LIST_ID}
-              selectedTaskId={displayDetailTask?.id ?? null}
-              onTaskFieldPatch={(taskId, patch) => patchTask(STARRED_LIST_ID, taskId, patch)}
-              virtualList="starred"
-            />
+          <SwipableMobileCarouselSlide slideKey={STARRED_LIST_ID} label="Starred">
+            {starredState && starredState.status !== 'loading' ? (
+              <TasksPane
+                list={{ id: STARRED_LIST_ID, title: 'Starred', color: null, openCount: 0 }}
+                lists={lists}
+                initialTasks={starredState.tasks}
+                showCompleted={false}
+                listId={STARRED_LIST_ID}
+                selectedTaskId={displayDetailTask?.id ?? null}
+                onTaskFieldPatch={(taskId, patch) => patchTask(STARRED_LIST_ID, taskId, patch)}
+                virtualList="starred"
+              />
+            ) : (
+              <div className={styles.slideLoading}>Loading…</div>
+            )}
+          </SwipableMobileCarouselSlide>
+
+          {lists.map((list) => {
+            const state = listState[list.id];
+            return (
+              <SwipableMobileCarouselSlide key={list.id} slideKey={list.id} label={list.title}>
+                {state && state.status !== 'loading' ? (
+                  <TasksPane
+                    list={list}
+                    lists={lists}
+                    initialTasks={state.tasks}
+                    showCompleted={state.showCompleted}
+                    listId={list.id}
+                    selectedTaskId={displayDetailTask?.id ?? null}
+                    onTaskFieldPatch={(taskId, patch) => patchTask(list.id, taskId, patch)}
+                  />
+                ) : (
+                  <div className={styles.slideLoading}>Loading…</div>
+                )}
+              </SwipableMobileCarouselSlide>
+            );
+          })}
+        </SwipableMobileCarousel>
+      </div>
+
+      {/* Self-rendered mobile footer (manifest shellConfig.mobileFooter:
+          false — the platform's own footer is off for this plugin). Left
+          icon jumps straight to the Lists slide via onSettle(0), the same
+          "external navigation" path a dot-indicator jump uses — not a
+          navigation to bare /tasks, which already has its own, different
+          meaning (cold-load → first list, see indexForPathname above).
+          Center Apps button and right Search icon mirror the platform
+          shell's own MobileNav convention, just plugin-local: the apps list
+          comes from layout.tsx's sdk.plugins.list() call (this component
+          can't call it itself — that SDK method needs next/headers), and
+          Search routes to this plugin's own /tasks/search rather than the
+          platform's instance-wide search overlay, which isn't exposed to
+          plugins. The center button uses the Launcher's own icon (same as
+          the platform shell's MobileNav) rather than the generic default,
+          so the two footers read as identical, not just similar. */}
+      <MobileFooter
+        onOpenApps={() => setAppsOpen(true)}
+        launcherOpen={appsOpen}
+        launcherIcon={
+          launcherIconUrl ? (
+            <img src={launcherIconUrl} alt="" aria-hidden className={styles.launcherIcon} />
+          ) : undefined
+        }
+        leftIcons={[
+          {
+            icon: <Icon name="menu" size="md" aria-hidden />,
+            label: 'Lists',
+            active: activeIndex === 0,
+            onClick: () => onSettle(0),
+          },
+        ]}
+        rightIcons={[
+          {
+            icon: <Icon name="search" size="md" aria-hidden />,
+            label: 'Search',
+            active: pathname === '/tasks/search',
+            onClick: () => router.push('/tasks/search'),
+          },
+        ]}
+      />
+
+      <MobileAppsDrawer
+        open={appsOpen}
+        onClose={() => setAppsOpen(false)}
+        aria-label="Apps"
+        items={footerApps.map((app) => ({
+          key: app.id,
+          icon: app.iconUrl ? (
+            <img src={app.iconUrl} alt="" className={styles.appIcon} />
           ) : (
-            <div className={styles.slideLoading}>Loading…</div>
-          )}
-        </SwipableMobileCarouselSlide>
-
-        {lists.map((list) => {
-          const state = listState[list.id];
-          return (
-            <SwipableMobileCarouselSlide key={list.id} slideKey={list.id} label={list.title}>
-              {state && state.status !== 'loading' ? (
-                <TasksPane
-                  list={list}
-                  lists={lists}
-                  initialTasks={state.tasks}
-                  showCompleted={state.showCompleted}
-                  listId={list.id}
-                  selectedTaskId={displayDetailTask?.id ?? null}
-                  onTaskFieldPatch={(taskId, patch) => patchTask(list.id, taskId, patch)}
-                />
-              ) : (
-                <div className={styles.slideLoading}>Loading…</div>
-              )}
-            </SwipableMobileCarouselSlide>
-          );
-        })}
-      </SwipableMobileCarousel>
+            monogram(app.name)
+          ),
+          label: app.name,
+          onClick: () => {
+            setAppsOpen(false);
+            router.push(app.routePrefix);
+          },
+        }))}
+      />
 
       <Sheet open={showDetailOverlay} onClose={closeDetail} aria-label="Task details">
         {displayDetailTask && activeListId ? (

@@ -424,6 +424,27 @@ server-rendered output) at all.
   only) as a prerequisite — it previously had no scroll container of its own
   at all (the carousel `.slide` wrapping it is `overflow: hidden`), a latent
   bug that also silently capped how many lists were reachable on a long list.
+- **Self-rendered mobile footer** (workstream 0001 leg 5): `manifest.json`
+  sets `shellConfig.mobileFooter: false`, and `MobileTasksCarousel.tsx`
+  renders its own `@sovereignfs/ui` `MobileFooter`/`MobileAppsDrawer` instead
+  of the platform's. Left icon jumps to the Lists slide via
+  `useCarouselRouteSync`'s `onSettle(0)` (not a navigation to bare `/tasks`,
+  which already has its own cold-load meaning). Center Apps button opens a
+  drawer populated from `sdk.plugins.list()` (called server-side in
+  `layout.tsx` — that SDK method needs `next/headers`, so this client
+  component can't call it itself) and uses the Launcher's own icon, matching
+  the platform shell's `MobileNav` exactly. Right icon routes to this
+  plugin's own `/tasks/search` instead of the platform's instance-wide
+  search overlay, which isn't exposed to plugins. **The Launcher stays
+  included in the drawer grid**, unlike the platform's own drawer (which
+  excludes it in favor of its separate Home left icon) — this footer's left
+  icon is repurposed for Lists, so the drawer is the only remaining way back
+  to the Launcher; excluding it here would strand users. `.wrap` is a flex
+  column (`.carouselArea` takes `flex: 1; min-height: 0`), not a plain
+  block — the carousel already fills 100% of whatever height it's given, so
+  without an explicit flex layout the footer after it gets pushed below the
+  fold and clipped by the shell's own `overflow: hidden`, invisible rather
+  than just misplaced (a real bug hit and fixed while building this).
 
 ## Versioning
 
@@ -433,7 +454,26 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.16.1** (`0.16.0` → `0.16.1` is workstream 0001 leg 1 — the
+Current version: **0.17.0** (`0.16.1` → `0.17.0` is workstream 0001 leg 5 —
+the mobile footer's left icon now opens the Lists slide instead of doing
+nothing plugin-specific; a real feature, not a refactor, hence the minor
+bump rather than a patch. `shellConfig.mobileFooter: false` plus a
+self-rendered `@sovereignfs/ui` `MobileFooter`/`MobileAppsDrawer`
+(`app/_components/MobileTasksCarousel.tsx`), not a platform change — an
+earlier version of this leg added a new manifest field
+(`shellConfig.mobileFooterLeftAction`) and shell-side plumbing in the
+platform monorepo, which turned out to be unnecessary and was reverted
+(never merged) once `example-mobile-poc`'s own self-rendered footer showed
+the existing `mobileHeader`/`mobileFooter` toggle was already sufficient.
+`layout.tsx` now calls `sdk.plugins.list()` (server-side; that SDK method
+needs `next/headers`) and passes the result down for the drawer — the
+Launcher's own icon is used for the center Apps button (matching the
+platform shell's `MobileNav` exactly) and Launcher is deliberately **not**
+excluded from the drawer grid the way the platform's own drawer excludes it:
+that exclusion only works there because the platform footer keeps a
+dedicated "Home" left icon separate from Apps — this footer's left icon is
+repurposed for "Lists", so the drawer is the only remaining way back to the
+Launcher. `0.16.0` → `0.16.1` is workstream 0001 leg 1 — the
 mobile carousel migrated from a hand-rolled scroll-snap/settle/pathname-sync
 implementation to `@sovereignfs/ui`'s `SwipableMobileCarousel` +
 `useCarouselRouteSync`, per `docs/workstreams/0001-mobile-ds-primitive-migration.md`.)
