@@ -23,7 +23,7 @@ in place as work progresses; do not delete resolved items, mark them
 | 2   | Fast swiping through not-yet-visited lists shows a spinner per list         | Data fetching                | Yes — partially (prefetch scope)     | planned                                  |
 | 3   | Checkbox/star tap has perceived latency despite existing optimistic updates | Rendering / gesture handling | No                                   | planned                                  |
 | 4   | Long-press-to-bulk-select competes with carousel swipe on mobile            | Gesture arbitration          | No                                   | planned (known, previously investigated) |
-| 5   | iPad-sized viewports get the desktop layout, not the mobile one             | Breakpoint / config          | No                                   | planned                                  |
+| 5   | iPad-sized viewports get the desktop layout, not the mobile one             | Breakpoint / config          | No                                   | shipped                                  |
 | 6   | Possible task-list reordering / count inconsistency                         | Correctness (unconfirmed)    | No                                   | likely not a bug                         |
 | 7   | Vertical overscroll on list scroll containers is not contained              | CSS / scroll containment     | No                                   | shipped                                  |
 
@@ -206,31 +206,50 @@ as a tradeoff, not an oversight.
 ### Issue 5 — iPad-sized viewports get the desktop layout, not the mobile one
 
 **Category:** Breakpoint / config
-**Status:** planned
+**Status:** shipped
 
 **Symptom:** On an iPad-class viewport, the plugin renders the desktop
 three-column layout instead of the mobile carousel.
 
 **Root cause:** Not a bug — a deliberate threshold. `app/_lib/useIsMobile.ts`
-forks the plugin's component tree at `640px`
-(`TASKS_MOBILE_BREAKPOINT_PX`), narrower than `@sovereignfs/ui`'s own
-canonical `768px` default (`MOBILE_BREAKPOINT_PX` in
-`packages/ui/src/hooks/useIsMobile.ts`) — both by design, per that file's
-own comment: the 641–768px band deliberately still gets the three-column
-layout so tablet users aren't regressed into the carousel. An iPad's
-viewport width (768px+ even in portrait on most models) exceeds both
-thresholds, so it lands on desktop either way.
+forked the plugin's component tree at `640px` (`TASKS_MOBILE_BREAKPOINT_PX`),
+narrower than `@sovereignfs/ui`'s own canonical `768px` default
+(`MOBILE_BREAKPOINT_PX` in `packages/ui/src/hooks/useIsMobile.ts`) — both by
+design, per that file's own comment: the 641–768px band deliberately still
+got the three-column layout so tablet users weren't regressed into the
+carousel. An iPad's viewport width (768px+ even in portrait on most models)
+exceeded both thresholds, so it landed on desktop either way.
 
-**Proposed fix:** If iPad should use the mobile carousel, this is a single
-constant change (`TASKS_MOBILE_BREAKPOINT_PX` in `useIsMobile.ts`), but
-must stay in lockstep with `layout.module.css`'s own `max-width: 640px`
-media query per that file's own comment — both need to move together, or
-the two layout trees can end up disagreeing about which one should be
-active at a given width. This is a product decision (does the desktop
-three-column layout actually work well enough on an iPad's touch input to
-justify keeping it there?), not a pure bug fix.
+**Proposed fix:** A single constant change (`TASKS_MOBILE_BREAKPOINT_PX` in
+`useIsMobile.ts`), kept in lockstep with the plugin's other mobile-gated CSS.
+Correction to this doc's original proposed-fix text: it named
+`layout.module.css`'s "own `max-width: 640px` media query" as the file to
+keep in lockstep — that file has no actual media query, only a descriptive
+comment mentioning the number; the real `@media (max-width: 640px)` blocks
+needing to move together live in `TaskItem.module.css` and
+`ListSidebar.module.css`. This was a product decision (does the desktop
+three-column layout work well enough on an iPad's touch input to justify
+keeping it there?), not a pure bug fix — decided: no, iPad should get the
+mobile carousel.
 
 **Relation to data-fetching proposal:** Not addressed by it.
+
+**Implementation notes:** `TASKS_MOBILE_BREAKPOINT_PX` raised `640` → `768`,
+matching `@sovereignfs/ui`'s own canonical default exactly (so the plugin no
+longer overrides it at all, functionally — kept as an explicit local
+constant rather than importing the DS default directly, so the reasoning
+stays documented in one place). Moved the matching
+`@media (max-width: 640px)` blocks in `TaskItem.module.css` and
+`ListSidebar.module.css` to `768px` in lockstep, and corrected
+`layout.module.css`'s stale `640px` comment (no functional change there —
+it has no real media query, just prose describing the JS-driven component
+swap). Verified live at exactly the boundary: `768px` viewport renders the
+mobile carousel, `769px` renders the desktop three-column layout — matches
+intent precisely. Note this covers the smallest common iPad (iPad Mini,
+768px portrait) but **not** larger iPads (iPad 10.2"/10.9" at 810–820px,
+iPad Pro at 834–1024px), which still land on desktop — if those should also
+get the carousel, `768` needs to go higher, at the cost of also pulling in
+some small-laptop-window widths.
 
 ---
 

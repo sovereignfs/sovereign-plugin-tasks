@@ -467,7 +467,24 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.20.1** (`0.20.0` → `0.20.1` is Issue 7 of
+Current version: **0.21.0** (`0.20.1` → `0.21.0` is Issue 5 of
+`docs/data-fetching-and-mobile-interaction-findings.md`, plus closing
+Issue 6 as a non-bug (docs-only, no version change of its own) — a
+deliberate product decision, not a bug fix: iPad-class viewports previously
+got the desktop three-column layout because `app/_lib/useIsMobile.ts` forked
+the plugin's component tree at `640px`, narrower than `@sovereignfs/ui`'s own
+canonical `768px` default, specifically to keep tablets on desktop. Reversed
+by decision — iPad now gets the mobile carousel. `TASKS_MOBILE_BREAKPOINT_PX`
+raised `640` → `768` (matching the DS default exactly), with the matching
+`@media (max-width: 640px)` blocks in `TaskItem.module.css` and
+`ListSidebar.module.css` moved to `768px` in lockstep (not
+`layout.module.css`, which the doc's original proposed fix incorrectly
+named — that file has no real media query, just a descriptive comment,
+corrected alongside this). Verified live at the exact boundary: `768px`
+renders the mobile carousel, `769px` renders desktop. Covers the smallest
+common iPad (Mini, `768px` portrait) but not larger iPads (`810px`–`1024px`
+range), which still land on desktop — a known, documented gap, not an
+oversight. `0.20.0` → `0.20.1` is Issue 7 of
 `docs/data-fetching-and-mobile-interaction-findings.md` — attempting to
 scroll up while already at the top of a list's task rows could visibly
 detach the sticky list header from the content below it for a moment,

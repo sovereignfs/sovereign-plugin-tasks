@@ -15,7 +15,11 @@
      Exposed as a custom property so ListSidebar.module.css's .item can match
      it exactly (list rows blend into the flank instead of sitting on their
      own white slab) without duplicating the color-mix expression. */
-  --tasks-sidebar-bg: color-mix(in srgb, var(--sv-color-surface-sunken), var(--sv-color-text-primary) 3%);
+  --tasks-sidebar-bg: color-mix(
+    in srgb,
+    var(--sv-color-surface-sunken),
+    var(--sv-color-text-primary) 3%
+  );
   background: var(--tasks-sidebar-bg);
 }
 
@@ -26,7 +30,7 @@
   background: var(--sv-color-surface);
 }
 
-/* Below 640px, MobileAwareShell swaps this entire tree for
+/* Below 768px, MobileAwareShell swaps this entire tree for
    MobileTasksCarousel (a swipeable Lists index + one slide per list) instead
    of stacking .sidebar above .content — so there is no mobile media query
    here anymore. See MobileAwareShell.tsx and useIsMobile.ts. */

@@ -133,7 +133,7 @@
    swipe-between-lists gesture. Only .swipeEdgeZone below restricts
    touch-action, so the reveal can only ever be *started* from a narrow strip
    at the row's right edge.
-   Scoped to the same ≤640px threshold useIsMobile() gates the swipe pointer
+   Scoped to the same ≤768px threshold useIsMobile() gates the swipe pointer
    handlers behind (TaskItem.tsx) — see ListSidebar.module.css's identical
    .rowInner rule for why this must not apply unconditionally: z-index on a
    position:relative element creates a new stacking context, which traps any
@@ -144,7 +144,7 @@
    one ever is. Desktop doesn't need this z-index at all — .row already
    paints above .swipeActionsBg via plain DOM order (it comes later in the
    markup). */
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .row {
     z-index: 1;
   }

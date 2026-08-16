@@ -220,7 +220,7 @@
    snap to open/closed on release; mid-drag, the handlers set transform
    directly on the DOM node instead, bypassing this transition for immediate
    feedback.
-   Scoped to the same ≤640px threshold useIsMobile() gates the swipe pointer
+   Scoped to the same ≤768px threshold useIsMobile() gates the swipe pointer
    handlers behind (ListSidebar.tsx) — z-index on a position:relative element
    creates a new stacking context, which on desktop had the side effect of
    trapping the colour-picker Popover (a descendant, position:absolute,
@@ -231,7 +231,7 @@
    above .swipeDeleteBg via plain DOM order (it comes later in the markup) —
    so gating it to mobile removes the trap without changing the swipe
    layering it exists for. */
-@media (max-width: 640px) {
+@media (max-width: 768px) {
   .rowInner {
     z-index: 1;
   }
