@@ -467,7 +467,34 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.20.0** (`0.19.0` → `0.20.0` is Issue 1 of
+Current version: **0.20.1** (`0.20.0` → `0.20.1` is Issue 7 of
+`docs/data-fetching-and-mobile-interaction-findings.md` — attempting to
+scroll up while already at the top of a list's task rows could visibly
+detach the sticky list header from the content below it for a moment,
+exposing blank space above the header. Root cause: `TasksPane.module.css`'s
+`.pane` (the mobile scroll container for a list's task rows) had no
+`overscroll-behavior` set, and neither did any other scroll container in
+the plugin. The platform shell's own `overscroll-behavior: none` on
+`html, body` only suppresses the _document's_ rubber-band bounce — iOS
+Safari applies elastic overscroll independently to every scrollable
+element, so `.pane` still rubber-banded on its own; since `.stickyHeader`
+lives inside `.pane`, an elastic bounce at `scrollTop: 0` could visually
+drag it down along with the bounced content. Fixed by adding
+`overscroll-behavior-y: contain` to `.pane`, matching the same treatment
+`@sovereignfs/ui`'s own internally-scrolling components (`Sheet`, `Drawer`,
+`ScrollArea`, `MessageScroller`) already give themselves. Applied the same
+containment to two other touch-reachable scroll containers found in the
+same audit: `ListSidebar.module.css`'s `.nav` (the mobile Lists-index
+carousel slide) and the small dropdown menus in `BulkActionBar.module.css`/
+`ListPickerControl.module.css` (no sticky child, so not the exact reported
+symptom, but the same class of gap). Desktop-only containers
+(`layout.module.css`'s `.sidebar`/`.content`, `[listId]/page.module.css`'s
+`.detailCol`) were confirmed never reached via touch and left alone.
+Verified live via `getComputedStyle` that both changed elements resolve
+`overscroll-behavior-y: contain` — the actual bounce itself isn't
+reproducible in this environment's Chromium-based tooling, same limitation
+as the earlier sticky-header fixes; real-device confirmation is still
+outstanding. `0.19.0` → `0.20.0` is Issue 1 of
 `docs/data-fetching-and-mobile-interaction-findings.md` — a subtask cache
 (module-level, keyed by parent task id) so `SubtaskList` no longer refetches
 via `getSubtasks` on every expand/collapse toggle. `SubtaskList` is

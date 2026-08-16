@@ -45,6 +45,11 @@
   padding: var(--sv-space-1);
   max-height: 240px;
   overflow-y: auto;
+  /* Touch-reachable scroll container — same overscroll containment as
+     TasksPane.module.css's .pane (see that rule's own comment), so
+     scrolling to the end of this small menu doesn't chain into a bounce on
+     whatever's behind it. */
+  overscroll-behavior: contain;
 }
 
 .menuItem {

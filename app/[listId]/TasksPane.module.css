@@ -13,6 +13,16 @@
      way TaskDetailPane's .top does). */
   padding: 0 0 var(--sv-space-6);
   overflow-y: auto;
+  /* Contains this scroll container's own elastic overscroll bounce so it
+     can't visually drag .stickyHeader (below) down with it, exposing blank
+     space above the header, when a user scrolls up past scrollTop: 0. The
+     platform shell's own overscroll-behavior: none on html/body only kills
+     the *document's* bounce — WebKit applies elastic overscroll
+     independently to every scrollable element, so this inner box still
+     needs its own containment. Matches the same treatment
+     @sovereignfs/ui's own internally-scrolling components (Sheet, Drawer,
+     ScrollArea, MessageScroller) already give themselves. */
+  overscroll-behavior-y: contain;
 }
 
 /* Pins .header + .addRow to the top of .pane while the task list scrolls

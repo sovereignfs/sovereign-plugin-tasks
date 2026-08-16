@@ -25,7 +25,7 @@ in place as work progresses; do not delete resolved items, mark them
 | 4   | Long-press-to-bulk-select competes with carousel swipe on mobile            | Gesture arbitration          | No                                   | planned (known, previously investigated) |
 | 5   | iPad-sized viewports get the desktop layout, not the mobile one             | Breakpoint / config          | No                                   | planned                                  |
 | 6   | Possible task-list reordering / count inconsistency                         | Correctness (unconfirmed)    | Unknown                              | needs reproduction                       |
-| 7   | Vertical overscroll on list scroll containers is not contained              | CSS / scroll containment     | No                                   | planned                                  |
+| 7   | Vertical overscroll on list scroll containers is not contained              | CSS / scroll containment     | No                                   | shipped                                  |
 
 ---
 
@@ -266,7 +266,7 @@ directly relevant; if it's an optimistic-update ordering bug, it is not.
 ### Issue 7 — Vertical overscroll on list scroll containers is not contained
 
 **Category:** CSS / scroll containment
-**Status:** planned
+**Status:** shipped
 
 **Symptom:** Attempting to scroll up while already at the top of a list's
 task rows can visibly detach the sticky list header from the content below
@@ -303,6 +303,31 @@ a touch device and missing the same containment.
 
 **Relation to data-fetching proposal:** Not addressed by it — pure CSS
 containment gap.
+
+**Implementation notes:** Added `overscroll-behavior-y: contain` to
+`TasksPane.module.css`'s `.pane` as proposed. Audited the other five
+containers named in the proposed fix: `ListSidebar.module.css`'s `.nav`
+(the mobile Lists-index carousel slide, gated to the same `@media
+(max-width: 640px)` block `useIsMobile()` uses — genuinely touch-reachable,
+same treatment applied) and `BulkActionBar.module.css`/
+`ListPickerControl.module.css`'s `.menu` (small touch-reachable dropdown
+popovers, no sticky child so not the exact reported symptom, but given
+`overscroll-behavior: contain` for consistency and to stop their own
+scroll chaining into whatever's behind them). `layout.module.css`'s
+`.sidebar`/`.content` and `[listId]/page.module.css`'s `.detailCol` are
+confirmed desktop/tablet-only (the former has no mobile media query at all
+per its own comment; the latter is hidden outright below `900px`, well
+above the mobile breakpoint) — skipped, since the bug is a touch-momentum
+artifact and these are never reached via touch scrolling in practice.
+`TaskDetailPane.tsx` needed no change — its mobile scroll container is
+`Sheet`'s own panel, which already sets `overscroll-behavior: contain`
+itself (`@sovereignfs/ui`). Verified live via `getComputedStyle` on both
+changed elements (`.pane` and the Lists-index `.nav`) — both correctly
+resolve `overscroll-behavior-y: contain`. The actual rubber-band bounce
+itself isn't reproducible in this environment's Chromium-based tooling
+(same limitation as the earlier sticky-header `translateZ(0)` fixes) —
+confirming the CSS rule is live is as far as this environment can verify;
+real-device confirmation is still outstanding.
 
 ---
 

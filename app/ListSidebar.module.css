@@ -64,7 +64,9 @@
   border-radius: var(--sv-radius-sm);
   color: var(--sv-color-text-subtle);
   cursor: pointer;
-  transition: background-color 0.1s ease, color 0.1s ease;
+  transition:
+    background-color 0.1s ease,
+    color 0.1s ease;
 }
 
 .newBtn:hover {
@@ -245,6 +247,10 @@
   .nav {
     height: 100%;
     overflow-y: auto;
+    /* Contains this scroll container's own elastic overscroll bounce — same
+       reasoning and treatment as TasksPane.module.css's .pane (see that
+       rule's own comment). */
+    overscroll-behavior-y: contain;
   }
 }
 
