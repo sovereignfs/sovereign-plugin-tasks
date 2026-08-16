@@ -467,7 +467,52 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.23.1** (`0.23.0` → `0.23.1` fixes a gap surfaced (but
+Current version: **0.23.2** (`0.23.1` → `0.23.2` fixes the mobile list
+header's "⋯" options menu rendering as a transparent, squashed overlay
+instead of a real bottom sheet — reported directly ("popup menu... seems
+broken UI wise"), not found live-testing. Root cause: `TasksPane.module.css`'s
+`.stickyHeader` (the "⋯" Menu trigger's ancestor) had `transform:
+translateZ(0)` — an older, unrelated fix (`ae39163`, predates this session)
+for a real WebKit sticky-header repaint bug during fast scroll, applying
+the standard "promote to its own compositing layer" trick. Any non-none
+`transform` value also establishes a new _containing block_ for
+`position: fixed` descendants per the CSS spec — and `@sovereignfs/ui`'s
+`Drawer` (what `Menu` renders on mobile) isn't portaled to `document.body`,
+so its `position: fixed` scrim/panel, instead of anchoring to the viewport,
+got trapped relative to that transformed header and rendered squashed into
+its own small box. Confirmed via live DOM/computed-style inspection on a
+real 375×812 mobile viewport before touching any code — traced the open
+Drawer's scrim through its full ancestor chain and found `.stickyHeader`
+as the one transformed ancestor sitting between it and the viewport; also
+audited every other `transform: translateZ(0)` use in this plugin
+(`BulkActionBar.module.css`, `TaskItem.module.css`, `TaskDetailPane.module.css`)
+and confirmed none of the others wrap a `Menu`/`Drawer` trigger — this is
+the only affected spot. Presented two options before touching code: fix
+`@sovereignfs/ui`'s `Drawer` to use a portal (architecturally correct,
+fixes the same latent trap anywhere else in the platform combining a
+sticky+transformed header with a `Menu`/`Drawer` trigger, but requires
+working in the platform repo under its own branch/PR workflow, not this
+session's plugin-only direct-to-main override) vs. a plugin-local
+workaround; the plugin owner chose the latter. Fixed by swapping
+`transform: translateZ(0)` for `backface-visibility: hidden` on
+`.stickyHeader` — the same "force GPU layer promotion" family of trick,
+but `backface-visibility` is notably absent from the CSS spec's list of
+properties that create a containing block for fixed descendants
+(`transform`/`perspective`/`filter`/`backdrop-filter`/`will-change`
+specifying any of those are; `backface-visibility` is not), so it should
+give the same WebKit compositing fix without the same trap. Verified live:
+the Drawer's scrim now resolves `position: fixed` with no transformed
+ancestor anywhere in its chain up to the viewport (checked via
+`getComputedStyle` on every ancestor); the menu now opens as a proper
+dimmed-backdrop bottom sheet with FILTER/SORT BY sections and destructive
+actions, selecting a filter option applies it and closes the sheet
+correctly, and no console errors throughout. **Not independently
+re-verified against the original WebKit momentum-scroll repaint bug this
+`transform` was added to fix** — no real-device access from this
+environment, same acknowledged limitation as this plugin's other
+WebKit-only fixes; if the header goes stale/blank again during a fast
+scroll on a real iPhone, this substitution didn't fully hold and needs
+revisiting (see the CSS rule's own comment). `0.23.0` → `0.23.1` fixes a gap surfaced (but
 not fixed) by `0.23.0`'s own desktop-adoption work: navigating to
 `/tasks/search` on mobile silently showed the first list's carousel slide
 instead of the real search page. Root cause:
