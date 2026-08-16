@@ -532,7 +532,11 @@ export default function TasksPane({
   ];
 
   return (
-    <div className={styles.pane} suppressHydrationWarning>
+    // data-menu-open: read by TaskItem.module.css's .dragHandle rule — see
+    // its own doc comment for why a WebKit compositing bug needs the
+    // handles hidden outright while this menu is open, not just
+    // z-index/layer tricks.
+    <div className={styles.pane} data-menu-open={menuOpen} suppressHydrationWarning>
       <div className={styles.stickyHeader}>
         <header className={styles.header}>
           <div className={styles.titleRow} ref={titleRowRef}>

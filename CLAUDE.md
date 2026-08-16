@@ -467,7 +467,48 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.23.2** (`0.23.1` → `0.23.2` fixes the mobile list
+Current version: **0.23.3** (`0.23.2` → `0.23.3` fixes a second WebKit-only
+artifact in the same "⋯" options menu `0.23.2` just fixed — reported
+directly with a real-device screenshot ("drag handle in drawer component,
+comes from tasks maybe"), not found live-testing. With the menu correctly
+positioned as a bottom sheet, every row showed a ghost six-dot grip icon
+bleeding through — visually identical to `TaskItem.tsx`'s own drag handle
+(`GripIcon`), at the same left-edge position on every row. Confirmed via a
+full DOM dump of the open Drawer that its markup contains zero grip icons
+of its own (only checkmarks and menu item text), ruling out a component
+bug — this had to be `.dragHandle` painting on top of the Drawer's fully
+opaque panel background (confirmed opaque: `rgb(24,24,27)`, `opacity: 1`,
+no transparency) despite DOM z-index math being correct (Drawer's scrim is
+100, `.dragHandle` is 4) — a WebKit cross-layer paint-order bug, invisible
+in this environment's Chromium-based preview tooling, only caught live on
+the iPhone 17 Simulator's real WebKit. Root cause traced to
+`.rowContainer` (`.dragHandle`'s own sibling) already having its own
+promoted compositing layer (`transform: translateZ(0)`, an older,
+unrelated fix) while `.dragHandle` itself has none — exactly the shape of
+element WebKit's compositor is known to sometimes mis-order against a
+separate, non-portaled overlay elsewhere in the tree. Two precedented
+per-element fixes were tried and rejected, both verified live on the
+Simulator before moving on: `backface-visibility: hidden` on `.dragHandle`
+(matching `0.23.2`'s own `.stickyHeader` fix) — didn't help, most likely
+because backface-visibility with no active transform/rotation in play
+doesn't reliably force real GPU layer promotion in WebKit; `transform:
+translateZ(0)` on `.dragHandle` (matching `.rowContainer`'s own proven
+fix) — also didn't help, and plausibly made the compositor's job harder by
+giving the handle its own independent layer that then has to be correctly
+ordered against the Drawer's separate layer tree, rather than fixing the
+ordering. Given neither local compositing hint reliably won against a
+genuine WebKit compositor bug, the fix instead removes the content that's
+leaking rather than trying to out-guess the compositor: `TasksPane.tsx`
+sets `data-menu-open={menuOpen}` on `.pane`, and
+`TaskItem.module.css` adds `:global([data-menu-open='true']) .dragHandle {
+opacity: 0 !important; pointer-events: none !important; }` — every drag
+handle in the list is hidden outright whenever the options menu is open,
+which costs nothing functionally since drag-reorder was never usable while
+a modal has focus anyway. Verified live on the Simulator: opening the menu
+now shows a clean bottom sheet with no ghost icons, and the (also now
+hidden) handles on the dimmed task rows behind the scrim confirm the rule
+is firing correctly; closing the menu (tap the scrim) restores them
+immediately. `0.23.1` → `0.23.2` fixes the mobile list
 header's "⋯" options menu rendering as a transparent, squashed overlay
 instead of a real bottom sheet — reported directly ("popup menu... seems
 broken UI wise"), not found live-testing. Root cause: `TasksPane.module.css`'s

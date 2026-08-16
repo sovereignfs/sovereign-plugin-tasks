@@ -81,6 +81,42 @@
   z-index: 4;
 }
 
+/* WebKit-only compositing quirk, found live on a real iPhone 17 Simulator
+   (invisible in this environment's Chromium-based preview tooling) once
+   this handle became permanently visible on mobile (findings doc Issue 4)
+   *and* TasksPane's "⋯" options menu got fixed to render as a real
+   bottom-sheet overlay (see TasksPane.module.css's .stickyHeader comment) —
+   neither precondition existed before, so this never had a chance to show
+   up until both landed together. With the menu open, this handle's icon
+   painted *on top of* the fully opaque Drawer panel instead of staying
+   beneath it, despite the Drawer's own z-index (100) being far higher — a
+   cross-layer paint-order bug, not a z-index value bug (DOM z-index math is
+   correct as written; this is WebKit's compositor resolving paint order
+   incorrectly across separate layer trees, specifically once this handle
+   is scrolled out from under the header and the Drawer opens on top).
+   Tried and rejected, both live on the Simulator: (1) backface-visibility:
+   hidden on this handle (matching TasksPane.module.css's .stickyHeader
+   fix) — didn't help; backface-visibility alone, with no actual
+   transform/rotation in play, doesn't reliably trigger real GPU layer
+   promotion in WebKit. (2) transform: translateZ(0) on this handle
+   (matching .rowContainer's own proven fix for an unrelated quirk) — also
+   didn't help, and plausibly made the underlying layer-ordering problem
+   *harder* to reason about by giving this handle its own independent
+   compositing layer that WebKit then has to correctly order against the
+   Drawer's separate layer tree, rather than fixing the ordering. Neither
+   local, per-element compositing hint reliably wins against a WebKit
+   compositor bug like this — so instead of promoting this handle, hide it
+   outright whenever the menu is open: TasksPane.tsx sets
+   data-menu-open="true" on .pane while Menu's open, and there's no real
+   loss — drag-reorder isn't a meaningful interaction while a modal has
+   focus anyway. :global() escapes this file's own CSS Modules scoping only
+   for the ancestor selector; .dragHandle itself stays a normal scoped
+   class reference. */
+:global([data-menu-open='true']) .dragHandle {
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 /* On pure-touch devices the handle is never revealed (it only appears on hover
    / focus, below) and drag-reorder isn't a usable touch gesture here — so make
    it inert to touch, otherwise a scroll that happens to start on this invisible
