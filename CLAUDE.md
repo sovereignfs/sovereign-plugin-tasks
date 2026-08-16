@@ -467,7 +467,47 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.22.0** (`0.21.1` → `0.22.0` is Issue 2 of
+Current version: **0.23.0** (`0.22.0` → `0.23.0` is desktop adoption of
+Issue 2's client-side cache — the follow-up flagged as deliberately
+deferred in `0.22.0`'s own entry below, now shipped. Extracted the entire
+cache engine (`listState`, `loadList`, `patchTask`, `addTask`, the
+prefetch/revalidate-on-focus effects, and the `?task=` detail-task fetch)
+out of `MobileTasksCarousel.tsx` into a new shared hook,
+`app/_lib/useTasksData.ts`, and built `app/_components/DesktopTasksShell.tsx`
+to consume it, replacing desktop's previous
+`<aside>ListSidebar</aside><main>{children}</main>` structure in
+`MobileAwareShell.tsx`. Turned out to be a much smaller change than
+originally scoped once actually investigated: `<Link>` navigation was never
+intercepted on either platform — clicking a list already triggers a real
+Next.js navigation on mobile too; what makes mobile feel instant is that
+`page.tsx`'s server output is only ever used as a `refreshSignal`, never
+rendered directly, with everything actually shown coming from the client
+cache instead. `DesktopTasksShell` applies the identical trick — no changes
+needed to `ListSidebar`, `page.tsx`, `starred/page.tsx`, or routing.
+Deliberately diverges from mobile's own pathname-matching for one thing:
+`activeListIdForPathname` requires an _exact_ match against a real list id
+or falls back to rendering `children` directly, rather than mobile's
+looser prefix-match-with-first-list-fallback — needed so desktop's
+existing `/tasks/search` and bare `/tasks` routes keep rendering their
+real content unchanged. Investigating this surfaced (but did not fix, out
+of scope here) a real, separate, pre-existing mobile gap: `/tasks/search`
+falls into that exact same "unrecognized segment → first list" fallback in
+`MobileTasksCarousel.tsx`'s `indexForPathname`, so navigating to Search on
+mobile silently shows the first list instead of search results — flagged
+as its own follow-up task rather than folded in here. Verified live
+end-to-end in the browser preview at a real desktop viewport (1280×720,
+confirmed via `matchMedia`/`innerWidth` in a fresh tab to rule out stale
+state from earlier mobile-viewport testing in the same tab): switching
+lists in the sidebar updated the list column instantly with no loading
+flash; clicking a task populated the detail column immediately from the
+same cache; toggling a checkbox updated counts in the list header and
+sidebar with no console errors; a full reload of a specific list URL
+showed real content immediately (cold-start hydration, matching mobile);
+and both `/tasks/search` and bare `/tasks` continued rendering correctly
+via the `children` fallback. Also re-verified mobile itself still works
+correctly after extracting the shared hook out of `MobileTasksCarousel.tsx`
+(list switching, checkbox mutation, no console errors) before building
+desktop on top of it. `0.21.1` → `0.22.0` is Issue 2 of
 `docs/data-fetching-and-mobile-interaction-findings.md` (mobile only —
 desktop adoption is a deliberately separate, not-yet-started follow-up, see
 the doc's own "Recommended sequencing"), plus implementing Part 2's three

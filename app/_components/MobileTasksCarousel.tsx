@@ -12,20 +12,12 @@ import {
   useCarouselRouteSync,
 } from '@sovereignfs/ui';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-} from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import ListSidebar from '../ListSidebar';
 import TasksPane from '../[listId]/TasksPane';
-import { getOrCreatePrefs, getStarredTasks, getTask, getTasks } from '../_lib/actions';
 import { listDotColor } from '../_lib/colors';
-import { persistList, readPersistedList, STALE_AFTER_MS } from '../_lib/listCache';
-import type { ListRow, TaskRow } from '../_lib/types';
+import { useTasksData } from '../_lib/useTasksData';
+import type { ListRow } from '../_lib/types';
 import { STARRED_LIST_ID } from '../_lib/virtualLists';
 import TaskDetailPane, { type DetailTask } from './TaskDetailPane';
 import type { FooterAppEntry } from './MobileAwareShell';
@@ -85,17 +77,6 @@ function monogram(name: string): string {
   return (second ? first.charAt(0) + second.charAt(0) : first.slice(0, 2)).toUpperCase();
 }
 
-interface ListState {
-  tasks: TaskRow[];
-  showCompleted: boolean;
-  status: 'loading' | 'loaded' | 'error';
-  /** `Date.now()` this entry was last fetched from the server — `0` for an
-   *  entry that was never successfully fetched (a fresh placeholder, or an
-   *  error state). Drives the revalidate-on-focus check below; see
-   *  `_lib/listCache.ts`'s `STALE_AFTER_MS`. */
-  fetchedAt: number;
-}
-
 interface Props {
   lists: ListRow[];
   /** Count of active starred tasks — see ListSidebar's own doc comment. */
@@ -153,7 +134,6 @@ export default function MobileTasksCarousel({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const didSyncInitialUrl = useRef(false);
-  const isFirstRefreshSignal = useRef(true);
   const [appsOpen, setAppsOpen] = useState(false);
 
   // @sovereignfs/ui's Sheet/Drawer both size themselves against
@@ -203,27 +183,6 @@ export default function MobileTasksCarousel({
     onNavigate: (path) => router.replace(path, { scroll: false }),
   });
 
-  const [listState, setListState] = useState<Record<string, ListState>>({});
-  const [detailTask, setDetailTask] = useState<DetailTask | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  // Tracks listIds with a fetch currently in flight — a ref, not state, so a
-  // second loadList(id) call that lands before the first resolves can see it
-  // synchronously and no-op instead of firing a duplicate set of server
-  // actions. Needed because the callers' own guards (the prefetch effect's
-  // `if (!listState[id])`, below) read listState from a render closure that
-  // React's dev-mode Strict Mode double-invoke — or a fast swipe past the
-  // same neighbor twice before its first load settles — can race past.
-  const loadingIdsRef = useRef<Set<string>>(new Set());
-  // Always-fresh mirror of listState for loadList to read without taking a
-  // dependency on it — plain assignment during render, not an effect, so it
-  // never lags a render behind. loadList's own useCallback deps stay `[]`
-  // (see below) so its identity — and every effect keyed on it — stays
-  // stable across every listState change, matching the file's existing
-  // stability conventions (loadingIdsRef above, refreshSignal's own doc
-  // comment further down).
-  const listStateRef = useRef(listState);
-  listStateRef.current = listState;
-
   // null when on the Lists index (0) or the Starred slide (1, its own cache
   // entry lives under STARRED_LIST_ID instead of a real ListRow).
   const activeList = activeIndex > 1 ? (lists[activeIndex - 2] ?? null) : null;
@@ -233,203 +192,16 @@ export default function MobileTasksCarousel({
   const activeListId = activeIsStarred ? STARRED_LIST_ID : (activeList?.id ?? null);
   const taskIdParam = searchParams.get('task');
 
-  const loadList = useCallback(async (listId: string) => {
-    if (loadingIdsRef.current.has(listId)) return;
-    loadingIdsRef.current.add(listId);
-
-    // Cold-start hydration (findings doc Issue 2 / Part 2 — IndexedDB
-    // persistence via _lib/listCache.ts): a list with no in-memory entry
-    // yet this session (typically right after a page reload — the
-    // in-memory cache is always empty then) gets one last chance to show
-    // real content instead of the loading skeleton, from whatever was
-    // persisted the last time it was fetched. Best-effort — a miss just
-    // falls through to the normal "show skeleton, then real data" flow
-    // below, same as before this existed. Deliberately checked via the ref
-    // (not the closed-over listState) so loadList's own identity stays
-    // stable — see listStateRef's doc comment.
-    if (!listStateRef.current[listId]) {
-      const persisted = await readPersistedList(listId);
-      if (persisted) {
-        setListState((s) =>
-          s[listId] ? s : { ...s, ...{ [listId]: { ...persisted, status: 'loaded' } } },
-        );
-      }
-    }
-
-    setListState((s) => {
-      const existing = s[listId];
-      // A background refresh (e.g. router.refresh() after toggling a
-      // checkbox re-fires this for the active slide via the refreshSignal
-      // effect below) should keep showing the already-loaded tasks while
-      // the refetch happens, not flip back to the "Loading…" placeholder —
-      // that unmounts and remounts TasksPane, which was the source of a
-      // visible flicker on every mutation, and (combined with the cold-load
-      // effect's router.replace also re-firing this for the same list right
-      // after the initial mount fetch) a double flicker on first open. The
-      // hydration step above already gives the same "stay loaded, refresh
-      // quietly" treatment to a persisted-cache hit. 'loading' is reserved
-      // for a list with genuinely nothing to show yet, from any source.
-      const status = existing?.status === 'loaded' ? 'loaded' : 'loading';
-      return {
-        ...s,
-        [listId]: {
-          tasks: existing?.tasks ?? [],
-          showCompleted: existing?.showCompleted ?? false,
-          fetchedAt: existing?.fetchedAt ?? 0,
-          status,
-        },
-      };
+  // Cache/staleness/persistence engine — shared with DesktopTasksShell, see
+  // _lib/useTasksData.ts's own doc comment for why this was extracted
+  // (findings doc Issue 2 / Part 2, desktop adoption).
+  const { listState, patchTask, addTask, detailTask, detailLoading, patchDetailTask } =
+    useTasksData({
+      lists,
+      activeListId,
+      taskIdParam,
+      refreshSignal,
     });
-    try {
-      // The Starred slide has no per-list prefs row (it's not a real list) —
-      // showCompleted stays a session-local false, same default as a fresh
-      // real list's own showCompleted before any prefs row exists.
-      if (listId === STARRED_LIST_ID) {
-        const tasks = await getStarredTasks();
-        const entry = { tasks, showCompleted: false, fetchedAt: Date.now() };
-        setListState((s) => ({ ...s, [listId]: { ...entry, status: 'loaded' } }));
-        persistList(listId, entry);
-        return;
-      }
-      const [tasks, prefs] = await Promise.all([getTasks(listId), getOrCreatePrefs(listId)]);
-      const entry = { tasks, showCompleted: prefs?.showCompleted ?? false, fetchedAt: Date.now() };
-      setListState((s) => ({ ...s, [listId]: { ...entry, status: 'loaded' } }));
-      persistList(listId, entry);
-    } catch {
-      setListState((s) => ({
-        ...s,
-        [listId]: { tasks: [], showCompleted: false, fetchedAt: 0, status: 'error' },
-      }));
-    } finally {
-      loadingIdsRef.current.delete(listId);
-    }
-  }, []);
-
-  // Synchronously patches this carousel's own decoupled task caches the
-  // moment an optimistic toggle (completion, star) fires inside a slide —
-  // see StarButton's onOptimisticChange doc comment for why. Without this,
-  // listState/detailTask stay stale until loadList's/the detailTask effect's
-  // own refetch (triggered by refreshSignal, some time after this same
-  // toggle's transition has already settled) eventually catches up, causing
-  // a visible revert-then-reapply flicker back to the old value.
-  const patchTask = useCallback((taskListId: string, taskId: string, patch: Partial<TaskRow>) => {
-    setListState((s) => {
-      const entry = s[taskListId];
-      if (!entry) return s;
-      return {
-        ...s,
-        [taskListId]: {
-          ...entry,
-          tasks: entry.tasks.map((t) => (t.id === taskId ? { ...t, ...patch } : t)),
-        },
-      };
-    });
-  }, []);
-
-  const patchDetailTask = useCallback((patch: Partial<DetailTask>) => {
-    setDetailTask((t) => (t ? { ...t, ...patch } : t));
-  }, []);
-
-  // Mirrors patchTask above, for the add-task path — see TasksPane's
-  // onTaskAdded doc comment for why this is needed (without it, a task added
-  // on mobile appears to do nothing until loadList's own refetch catches up).
-  const addTask = useCallback((taskListId: string, task: TaskRow) => {
-    setListState((s) => {
-      const entry = s[taskListId];
-      if (!entry) return s;
-      return { ...s, [taskListId]: { ...entry, tasks: [...entry.tasks, task] } };
-    });
-  }, []);
-
-  // Fetch the active slide plus its immediate neighbors first — a single
-  // swipe never shows a loading spinner since the destination is already
-  // cached. Then (findings doc Issue 2's actual fix — fast swiping past
-  // *more than one* never-visited list in a row used to outrun this
-  // neighbor-only window) background-warm every other not-yet-cached list
-  // too, so by the time a longer swipe or several swipes in a row reach
-  // them, they're very likely already loaded. Heavier initial request
-  // burst than before — an accepted tradeoff for this plugin's realistic
-  // list counts (a personal task manager, not hundreds of lists); see the
-  // findings doc for the full reasoning.
-  useEffect(() => {
-    const neighborIds = [activeIndex - 1, activeIndex, activeIndex + 1]
-      .map((i) => (i === 1 ? STARRED_LIST_ID : lists[i - 2]?.id))
-      .filter((id): id is string => !!id);
-    for (const id of neighborIds) {
-      if (!listState[id]) loadList(id);
-    }
-
-    // Revalidate-on-focus, the "slide became active" trigger (findings doc
-    // Issue 2 decision 2) — the tab/window-focus trigger is the separate
-    // effect below. Only meaningful for an entry that's actually loaded;
-    // an in-flight or errored entry is left to its own existing retry path.
-    const activeId = activeIndex === 1 ? STARRED_LIST_ID : lists[activeIndex - 2]?.id;
-    if (activeId) {
-      const entry = listState[activeId];
-      if (entry?.status === 'loaded' && Date.now() - entry.fetchedAt > STALE_AFTER_MS) {
-        loadList(activeId);
-      }
-    }
-
-    const allIds = [STARRED_LIST_ID, ...lists.map((l) => l.id)];
-    for (const id of allIds) {
-      if (!neighborIds.includes(id) && !listState[id]) loadList(id);
-    }
-    // listState intentionally excluded from deps — it's the effect's own
-    // output (loadList's setListState calls), not an input that should retrigger it.
-  }, [activeIndex, lists, loadList]);
-
-  // Revalidate-on-focus, the other trigger: the tab/window regains focus
-  // while a stale-by-time slide is already active (e.g. the user switched
-  // apps for a while and came back). Registered once — reads the latest
-  // state via listStateRef/activeListId's own closure-free ref pattern
-  // rather than depending on listState directly, so this listener isn't
-  // torn down and re-added on every mutation.
-  const activeListIdRef = useRef(activeListId);
-  activeListIdRef.current = activeListId;
-  useEffect(() => {
-    function revalidateActiveIfStale() {
-      if (document.visibilityState !== 'visible') return;
-      const id = activeListIdRef.current;
-      if (!id) return;
-      const entry = listStateRef.current[id];
-      if (entry?.status === 'loaded' && Date.now() - entry.fetchedAt > STALE_AFTER_MS) {
-        loadList(id);
-      }
-    }
-    document.addEventListener('visibilitychange', revalidateActiveIfStale);
-    window.addEventListener('focus', revalidateActiveIfStale);
-    return () => {
-      document.removeEventListener('visibilitychange', revalidateActiveIfStale);
-      window.removeEventListener('focus', revalidateActiveIfStale);
-    };
-  }, [loadList]);
-
-  // Re-fetch the active list whenever a mutation elsewhere triggers a server
-  // refresh (see refreshSignal's doc comment above). Skips the first fire,
-  // which coincides with the initial mount already covered by the effect above.
-  useEffect(() => {
-    if (isFirstRefreshSignal.current) {
-      isFirstRefreshSignal.current = false;
-      return;
-    }
-    if (activeListId) loadList(activeListId);
-    // Any mutation, wherever it happens, can change the Starred aggregate —
-    // most commonly starring/unstarring a task while viewing a different,
-    // real list. Its cache lives independently of whichever slide is active
-    // (see listState's per-list-id shape above), so a star toggle elsewhere
-    // never touched it before this line: revisiting Starred later replayed
-    // whatever snapshot was cached the last time it happened to be the
-    // active/neighboring slide, silently missing anything starred since.
-    // Only refetch it if it's already been loaded once — matches the rest of
-    // this file's "never eagerly fetch a slide nobody has viewed" approach.
-    if (activeListId !== STARRED_LIST_ID && listState[STARRED_LIST_ID]) {
-      loadList(STARRED_LIST_ID);
-    }
-    // Intentionally only keyed on refreshSignal — activeListId/loadList/
-    // listState are read at fire-time, not triggers for re-running this
-    // effect themselves.
-  }, [refreshSignal]);
 
   // Cold-load at the bare /tasks route: sync the URL to the first list once,
   // so a refresh/share-link lands consistently with what's on screen.
@@ -441,32 +213,6 @@ export default function MobileTasksCarousel({
       router.replace(`/tasks/${first.id}`, { scroll: false });
     }
   }, [pathname, lists, router]);
-
-  // Task detail sheet: driven by the ?task= param, same convention as desktop.
-  useEffect(() => {
-    if (!taskIdParam) {
-      setDetailTask(null);
-      return;
-    }
-    let cancelled = false;
-    setDetailLoading(true);
-    getTask(taskIdParam)
-      .then((t) => {
-        if (!cancelled) {
-          setDetailTask(t as DetailTask | null);
-          setDetailLoading(false);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setDetailTask(null);
-          setDetailLoading(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [taskIdParam, refreshSignal]);
 
   function closeDetail() {
     const params = new URLSearchParams(searchParams);

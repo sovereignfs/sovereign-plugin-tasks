@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import { useIsMobile } from '../_lib/useIsMobile';
 import type { ListRow } from '../_lib/types';
-import ListSidebar from '../ListSidebar';
+import DesktopTasksShell from './DesktopTasksShell';
 import MobileTasksCarousel from './MobileTasksCarousel';
 import styles from '../layout.module.css';
 
@@ -76,11 +76,8 @@ export default function MobileAwareShell({
   }
 
   return (
-    <div className={styles.shell} data-plugin-fullbleed>
-      <aside className={styles.sidebar}>
-        <ListSidebar lists={lists} starredCount={starredCount} />
-      </aside>
-      <main className={styles.content}>{children}</main>
-    </div>
+    <DesktopTasksShell lists={lists} starredCount={starredCount} refreshSignal={children}>
+      {children}
+    </DesktopTasksShell>
   );
 }

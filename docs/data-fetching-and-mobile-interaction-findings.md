@@ -17,15 +17,15 @@ in place as work progresses; do not delete resolved items, mark them
 
 ## Part 1 — Issue catalog
 
-| #   | Issue                                                                       | Category                     | Data-fetching proposal addresses it? | Status                             |
-| --- | --------------------------------------------------------------------------- | ---------------------------- | ------------------------------------ | ---------------------------------- |
-| 1   | Subtask list refetches on every expand/collapse                             | Data fetching                | Yes — directly                       | shipped                            |
-| 2   | Fast swiping through not-yet-visited lists shows a spinner per list         | Data fetching                | Yes — partially (prefetch scope)     | shipped (mobile) — desktop pending |
-| 3   | Checkbox/star tap has perceived latency despite existing optimistic updates | Rendering / gesture handling | No                                   | closed — not reproducible          |
-| 4   | Long-press-to-bulk-select competes with carousel swipe on mobile            | Gesture arbitration          | No                                   | shipped                            |
-| 5   | iPad-sized viewports get the desktop layout, not the mobile one             | Breakpoint / config          | No                                   | shipped                            |
-| 6   | Possible task-list reordering / count inconsistency                         | Correctness (unconfirmed)    | No                                   | likely not a bug                   |
-| 7   | Vertical overscroll on list scroll containers is not contained              | CSS / scroll containment     | No                                   | shipped                            |
+| #   | Issue                                                                       | Category                     | Data-fetching proposal addresses it? | Status                    |
+| --- | --------------------------------------------------------------------------- | ---------------------------- | ------------------------------------ | ------------------------- |
+| 1   | Subtask list refetches on every expand/collapse                             | Data fetching                | Yes — directly                       | shipped                   |
+| 2   | Fast swiping through not-yet-visited lists shows a spinner per list         | Data fetching                | Yes — partially (prefetch scope)     | shipped                   |
+| 3   | Checkbox/star tap has perceived latency despite existing optimistic updates | Rendering / gesture handling | No                                   | closed — not reproducible |
+| 4   | Long-press-to-bulk-select competes with carousel swipe on mobile            | Gesture arbitration          | No                                   | shipped                   |
+| 5   | iPad-sized viewports get the desktop layout, not the mobile one             | Breakpoint / config          | No                                   | shipped                   |
+| 6   | Possible task-list reordering / count inconsistency                         | Correctness (unconfirmed)    | No                                   | likely not a bug          |
+| 7   | Vertical overscroll on list scroll containers is not contained              | CSS / scroll containment     | No                                   | shipped                   |
 
 ---
 
@@ -92,7 +92,7 @@ fetch either.
 ### Issue 2 — Fast swiping through not-yet-visited lists shows a spinner per list
 
 **Category:** Data fetching / caching
-**Status:** shipped (mobile) — desktop adoption still pending, see Part 2
+**Status:** shipped
 
 **Symptom:** Swiping quickly through several lists that haven't been viewed
 yet in the current session shows a loading spinner for each one in turn.
@@ -205,6 +205,64 @@ wasn't independently re-verified beyond code review/typecheck — it reuses
 `loadList`'s already-live-tested "stale content stays visible during a
 background refetch" behavior, and waiting out a real 60-second window
 wasn't practical to script in this session.
+
+**Desktop adoption (follow-up, same Issue):** shipped as a second pass once
+mobile's version was verified working. Extracted the entire cache engine
+above (`listState`, `loadList`, `patchTask`, `addTask`, the prefetch/
+revalidate-on-focus effects, and the `?task=` detail-task fetch — this
+last piece wasn't originally called out as part of Issue 2, but is the
+same class of data desktop needs cached too) out of `MobileTasksCarousel.tsx`
+and into a new shared hook, `app/_lib/useTasksData.ts` — see that file's own
+doc comment for the one deliberate behavior simplification (neighbor-adjacency
+request-priority is gone; activeId-first-then-everything-else isn't). New
+`app/_components/DesktopTasksShell.tsx` consumes the same hook and replaces
+desktop's previous `<aside>ListSidebar</aside><main>{children}</main>`
+structure in `MobileAwareShell.tsx`. The key insight that made this a much
+smaller change than initially scoped: **`<Link>` navigation between lists
+was never intercepted, on mobile or desktop** — clicking a list already
+triggers a real Next.js navigation either way; what makes mobile feel
+instant is that `MobileAwareShell` never renders `page.tsx`'s server output
+directly on mobile, only uses it as `refreshSignal` (see that file's own
+doc comment), rendering everything from the client cache instead. Desktop
+previously did render `{children}` directly, which is the entire reason it
+paid for a full round trip on every navigation. `DesktopTasksShell` applies
+the identical trick — `children` is only rendered as a fallback (see next
+paragraph), everything else comes from the same client cache mobile uses.
+No changes to `ListSidebar`, `page.tsx`, `starred/page.tsx`, or routing were
+needed.
+
+**Fallback routes, handled deliberately differently from mobile's own
+carousel:** `DesktopTasksShell`'s `activeListIdForPathname` returns `null`
+for any pathname that isn't an exact `/tasks/<realListId>` or
+`/tasks/starred` — bare `/tasks`, `/tasks/search`, and anything else. In
+that case `children` (page.tsx's/search/page.tsx's real server-rendered
+output) is rendered directly, exactly as it was before this change. This
+was a deliberate divergence from mobile's own `indexForPathname`, which
+prefix-matches and falls back to "show the first list" for _any_
+unrecognized segment — harmless for mobile today only because the carousel
+has no other way to render `/tasks/search` regardless (a separate,
+pre-existing gap this investigation surfaced but did not fix: navigating to
+`/tasks/search` on mobile currently shows the first list instead of search
+results, since `indexForPathname("/tasks/search", lists)` finds no list
+with id `"search"` and falls through to its own "unrecognized → first list"
+default; this is unrelated to Issue 2 and needs its own investigation).
+Desktop's exact-match `null` fallback avoids replicating that same masked
+gap for `/tasks/search` and bare `/tasks` on desktop, which already worked
+correctly before this change via `{children}` and needed to keep doing so.
+
+Verified live end-to-end in the browser preview at a real desktop viewport
+(1280×720, confirmed via `window.matchMedia` and `window.innerWidth`, in a
+fresh tab to rule out stale state from earlier mobile-viewport testing in
+the same tab): clicking between "List 1" and "Groceries" in the sidebar
+switched the list column's content instantly, with no loading flash;
+clicking a task populated the detail column immediately from the same
+`useTasksData` cache; toggling a task's checkbox updated the task count in
+both the list header and the sidebar with no console errors; a full page
+reload of a specific list URL showed real content immediately (cold-start
+hydration, same as mobile); and both `/tasks/search` and bare `/tasks`
+continued rendering their real, correct content (search results/empty
+state, "Select a list" empty state respectively) via the `children`
+fallback, unaffected by the cache-driven list/Starred routes.
 
 ---
 
@@ -500,23 +558,21 @@ real-device confirmation is still outstanding.
 
 ### Current state
 
-- **Mobile carousel** (`MobileTasksCarousel.tsx`): keeps its own
-  client-side cache (`listState`, keyed by list id), populated lazily,
-  never evicted once loaded. As of Issue 2's fix (shipped), the
-  mount/`activeIndex`-change effect eagerly prefetches the active slide ±1
-  neighbor first, then background-warms every other list too, and
-  revalidates the active entry on a staleness timeout when it becomes
-  active again or the tab/window regains focus. Persisted to IndexedDB
-  (`app/_lib/listCache.ts`, via `@sovereignfs/sdk/offline`) for a faster
-  cold start across reloads. Subtasks have their own separate, narrower
-  cache (Issue 1, shipped, `SubtaskList.tsx`'s own module-level `Map`).
-- **Desktop three-column layout**: no client-side cache. Every navigation
-  between lists is a full server round trip through Next.js routing
-  (`page.tsx` re-fetches on every route change). There is currently no
-  mobile-carousel-equivalent decoupled cache on desktop at all — **still
-  true after Issue 2's fix**, which only touched the mobile carousel; see
-  "Recommended sequencing" below for why desktop adoption is deliberately a
-  separate, not-yet-started follow-up.
+- **Mobile carousel** (`MobileTasksCarousel.tsx`) and **desktop three-column
+  layout** (`DesktopTasksShell.tsx`, new) now share one cache engine —
+  `app/_lib/useTasksData.ts` — populated lazily, never evicted once loaded.
+  The active list is fetched first, then every other list background-warms
+  too, and the active entry revalidates on a staleness timeout when it
+  becomes active again or the tab/window regains focus. Persisted to
+  IndexedDB (`app/_lib/listCache.ts`, via `@sovereignfs/sdk/offline`) for a
+  faster cold start across reloads. Subtasks have their own separate,
+  narrower cache (Issue 1, shipped, `SubtaskList.tsx`'s own module-level
+  `Map`). Desktop reaches this cache the same way mobile always has —
+  `page.tsx`'s server-rendered output is used only as a `refreshSignal`, not
+  rendered directly, for any route the shell recognizes as a cache-covered
+  list/Starred route; unrecognized routes (bare `/tasks`, `/tasks/search`)
+  still render the real server output as a fallback. See Issue 2's
+  "Desktop adoption" implementation notes for the full account.
 
 ### Proposal (as stated by the plugin owner)
 
@@ -612,26 +668,18 @@ currently has none.
 1. ~~Ship Issue 1 (subtask caching) first.~~ **Done.**
 2. ~~Resolve the three open design questions above.~~ **Done** — see each
    decision above.
-3. ~~Design and implement the broader list-level cache~~ **Done for
-   mobile** — see Issue 2's implementation notes. **Desktop adoption is
-   still not started** and is deliberately being kept as its own separate
-   follow-up rather than folded into the same change: desktop's current
-   data flow (`page.tsx` as a plain server component, re-fetching
-   everything fresh on every route change via Next.js's own routing) is
-   architecturally unrelated to the mobile carousel's client-driven,
-   never-unmounted SPA-in-a-tab model that `listState`/`listCache.ts` were
-   built against — adopting the same caching approach there means either
-   converting desktop's data flow to be client-cache-driven too (a real,
-   separate architectural change touching `TasksPane`, `ListSidebar`, and
-   `TaskDetailPane`'s prop flow, not a drop-in reuse of what mobile just
-   got) or finding a different, desktop-appropriate mechanism (e.g. leaning
-   on Next.js's own `<Link>` prefetching, not yet investigated for whether
-   it already provides some of this for free). Desktop currently has no
-   reported bug or complaint driving this — Issue 2's own symptom was
-   mobile-swipe-specific — so there's no urgency forcing it into the same
-   push as a bounded, already-verified mobile fix. Whoever picks this up
-   next should start by investigating Next.js's built-in prefetch behavior
-   for this route shape before assuming a full rewrite is necessary.
+3. ~~Design and implement the broader list-level cache + desktop
+   adoption.~~ **Done.** Shipped in two passes: mobile first (Issue 2's own
+   fix), then desktop as a follow-up once mobile's version was verified —
+   see Issue 2's "Desktop adoption" implementation notes for the full
+   account, including why it ended up a much smaller change than the
+   original "converting desktop's data flow" framing above assumed (the
+   short version: `<Link>` navigation was never intercepted on either
+   platform — mobile's speed always came from not rendering `page.tsx`'s
+   output directly, only using it as a refresh signal; desktop just needed
+   the same treatment, not a routing rewrite). All three parts of this
+   proposal — subtask caching, mobile list caching, desktop adoption — are
+   now shipped; nothing further is planned in this doc as of this writing.
 
 ---
 
