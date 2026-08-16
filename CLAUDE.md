@@ -467,7 +467,30 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.19.0** (`0.18.7` → `0.19.0` reworks the self-rendered
+Current version: **0.20.0** (`0.19.0` → `0.20.0` is Issue 1 of
+`docs/data-fetching-and-mobile-interaction-findings.md` — a subtask cache
+(module-level, keyed by parent task id) so `SubtaskList` no longer refetches
+via `getSubtasks` on every expand/collapse toggle. `SubtaskList` is
+conditionally mounted (`{expanded && <SubtaskList ... />}` in `TaskItem`),
+so every collapse used to discard all fetched state and every re-expand —
+even of the same task, moments later — repeated the full round trip.
+Cache staleness reuses the component's own existing reload-trigger props
+(`listId`/`parentCompletedAt`/`parentSubtaskCount`/`parentSubtaskDoneCount`)
+as a signature: a cached entry is only served when today's signature
+matches the one recorded at cache-write time, so every case that already
+forced a reload before this cache existed still does (the parent's
+completion cascading to subtasks, a sibling `SubtaskList` instance's own
+mutation) — only a signature-preserving mount/unmount now serves from
+cache. A local mutation (toggle/add/delete) updates the cache alongside its
+own `load()` call, so a subsequent remount reflects it without a second
+fetch. Verified live: expand → collapse → re-expand produced zero new
+network requests (confirmed via the browser's own network log, not just
+inferred), toggling a subtask then collapsing/re-expanding showed the
+updated state with no extra fetch either. No automated test — this plugin
+has no component-testing infrastructure (`@testing-library/react` isn't a
+dependency; only lib-level `.test.ts` files exist), and adding that
+capability was judged a larger, separate change than this fix warranted.
+`0.18.7` → `0.19.0` reworks the self-rendered
 mobile Apps drawer's contents and ordering (`app/layout.tsx`), reported live
 as showing "Account" and "Launcher" as generic plugin tiles alongside
 "Console" in whatever order `sdk.plugins.list()` happened to return. Account
