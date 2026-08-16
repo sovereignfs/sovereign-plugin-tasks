@@ -17,7 +17,6 @@ import StarButton from './StarButton';
 import SubtaskList from './SubtaskList';
 import styles from './TaskItem.module.css';
 
-
 // Mobile-only swipe-to-reveal (Done + Delete) — width per button (px), must
 // match .swipeDoneBtn/.swipeDeleteBtn's own width in TaskItem.module.css. Two
 // buttons, unlike ListSidebar's single Delete action.
@@ -132,17 +131,26 @@ export default function TaskItem({
   const style = { transform: CSS.Transform.toString(transform), transition };
   // Whenever a reorder is actually possible (dragDisabled hides the handle
   // and disables useSortable in the same cases): let a press-and-drag
-  // anywhere on the row lift it, on every breakpoint — same reasoning as
-  // ListSidebar's identical row-forwarding (see that component's own
-  // comment): the hover-revealed handle is easy to miss, and MouseSensor's
-  // own 8px activation distance already keeps a plain click from being
-  // mistaken for a drag, so forwarding the full `listeners` object here
-  // carries no narrow-desktop-window risk. On mobile this is still the
-  // touch long-press lift (TouchSensor's delay/tolerance own that); on
-  // mouse it's a plain click-and-drag. The handle itself keeps the full
-  // `listeners` below too, unchanged — both remain valid ways to start the
-  // same drag.
-  const rowDragListeners = dragDisabled ? undefined : listeners;
+  // anywhere on the row lift it — but only on desktop/mouse. Same reasoning
+  // as ListSidebar's identical row-forwarding (see that component's own
+  // comment) for *why* whole-row forwarding is convenient: the
+  // hover-revealed handle is easy to miss, and MouseSensor's own 8px
+  // activation distance already keeps a plain click from being mistaken for
+  // a drag, so forwarding the full `listeners` object here carries no
+  // narrow-desktop-window risk.
+  //
+  // On mobile this whole-row forwarding is deliberately withheld (fix for
+  // findings doc Issue 4): TouchSensor's long-press-anywhere-on-the-row
+  // lift competed with the carousel's own horizontal swipe-to-navigate
+  // gesture — a swipe with any realistic vertical wobble could be captured
+  // as a drag lift instead of becoming carousel navigation, sometimes
+  // leaving a stuck-looking hover/reveal state behind (iOS Safari's
+  // sticky-hover-after-touch quirk). Touch reorder now goes exclusively
+  // through the dedicated `.dragHandle` button below, which is the only
+  // element still carrying `listeners` on mobile — see its own
+  // `@media (max-width: 768px)` CSS block for the matching touch-target
+  // change (now interactive there, not just on hover-capable devices).
+  const rowDragListeners = dragDisabled || isMobile ? undefined : listeners;
 
   // Optimistic completion: the checkbox flips instantly on tap instead of
   // waiting on toggleComplete's DB round trip (subtask cascade + main update
@@ -315,110 +323,116 @@ export default function TaskItem({
           onClickCapture={handleRowClickCapture}
           {...rowDragListeners}
         >
-        {/* data-no-dnd: Checkbox doesn't forward arbitrary props to its own
+          {/* data-no-dnd: Checkbox doesn't forward arbitrary props to its own
             root, so the exclusion is marked on this wrapper instead — a
             long-press on the checkbox should hit its own tap target, not
             lift the row. display: contents keeps it out of the flex layout. */}
-        <div data-no-dnd style={{ display: 'contents' }}>
-          <Checkbox
-            checked={isComplete}
-            onChange={handleToggle}
-            label=""
-            aria-label={`Mark "${task.title}" ${isComplete ? 'incomplete' : 'complete'}`}
-          />
-        </div>
+          <div data-no-dnd style={{ display: 'contents' }}>
+            <Checkbox
+              checked={isComplete}
+              onChange={handleToggle}
+              label=""
+              aria-label={`Mark "${task.title}" ${isComplete ? 'incomplete' : 'complete'}`}
+            />
+          </div>
 
-        <Link
-          href={detailHref}
-          className={styles.main}
-          // Spread the long-press handlers (pointer events, onContextMenu, and
-          // the coarse-pointer-only touch-callout/user-select/touch-action
-          // `style`), then override onClick to compose the hook's click
-          // suppression with the desktop ctrl/cmd-click bulk toggle.
-          {...longPress}
-          onClick={handleMainClick}
-        >
-          <span
-            className={[styles.title, isComplete ? styles.complete : ''].filter(Boolean).join(' ')}
+          <Link
+            href={detailHref}
+            className={styles.main}
+            // Spread the long-press handlers (pointer events, onContextMenu, and
+            // the coarse-pointer-only touch-callout/user-select/touch-action
+            // `style`), then override onClick to compose the hook's click
+            // suppression with the desktop ctrl/cmd-click bulk toggle.
+            {...longPress}
+            onClick={handleMainClick}
           >
-            {task.title}
-          </span>
-          {task.notes && <span className={styles.note}>{task.notes}</span>}
-          {showListBadge && listTitle && (
-            <span className={styles.listBadge}>
-              <span
-                className={styles.listBadgeDot}
-                style={{ background: listDotColor(listColor) }}
-                aria-hidden
-              />
-              {listTitle}
-            </span>
-          )}
-          {(task.dueDate || task.recurrenceRule) && (
-            <span className={styles.dueRow}>
-              {task.dueDate && (
-                <span className={[styles.due, overdue ? styles.overdue : ''].filter(Boolean).join(' ')}>
-                  <Icon name="calendar" size="xs" aria-hidden />
-                  {formatDueDate(task.dueDate, task.dueTime)}
-                </span>
-              )}
-              {task.recurrenceRule && (
-                <span className={styles.repeatIndicator}>
-                  <Icon name="rotate-ccw" size="xs" aria-hidden />
-                  {summaryLabel(task.recurrenceRule)}
-                </span>
-              )}
-            </span>
-          )}
-        </Link>
-
-        {/* data-no-dnd: subtask ring + star should take a plain tap/long-press
-            as their own action, not lift the row for reorder. */}
-        <div className={styles.right} data-no-dnd>
-          {hasSubtasks && (
-            <button
-              type="button"
-              className={styles.ringBtn}
-              aria-label={expanded ? 'Hide subtasks' : 'Show subtasks'}
-              aria-expanded={expanded}
-              onClick={() => setExpanded((v) => !v)}
+            <span
+              className={[styles.title, isComplete ? styles.complete : '']
+                .filter(Boolean)
+                .join(' ')}
             >
-              <ProgressRing done={task.subtaskDoneCount} total={task.subtaskCount} />
-              <Icon
-                name={expanded ? 'chevron-up' : 'chevron-down'}
-                size="sm"
-                aria-hidden
-                className={styles.subtaskChevron}
-              />
-            </button>
-          )}
-          {/* Always last (rightmost) so its position stays fixed whether or
+              {task.title}
+            </span>
+            {task.notes && <span className={styles.note}>{task.notes}</span>}
+            {showListBadge && listTitle && (
+              <span className={styles.listBadge}>
+                <span
+                  className={styles.listBadgeDot}
+                  style={{ background: listDotColor(listColor) }}
+                  aria-hidden
+                />
+                {listTitle}
+              </span>
+            )}
+            {(task.dueDate || task.recurrenceRule) && (
+              <span className={styles.dueRow}>
+                {task.dueDate && (
+                  <span
+                    className={[styles.due, overdue ? styles.overdue : '']
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    <Icon name="calendar" size="xs" aria-hidden />
+                    {formatDueDate(task.dueDate, task.dueTime)}
+                  </span>
+                )}
+                {task.recurrenceRule && (
+                  <span className={styles.repeatIndicator}>
+                    <Icon name="rotate-ccw" size="xs" aria-hidden />
+                    {summaryLabel(task.recurrenceRule)}
+                  </span>
+                )}
+              </span>
+            )}
+          </Link>
+
+          {/* data-no-dnd: subtask ring + star should take a plain tap/long-press
+            as their own action, not lift the row for reorder. */}
+          <div className={styles.right} data-no-dnd>
+            {hasSubtasks && (
+              <button
+                type="button"
+                className={styles.ringBtn}
+                aria-label={expanded ? 'Hide subtasks' : 'Show subtasks'}
+                aria-expanded={expanded}
+                onClick={() => setExpanded((v) => !v)}
+              >
+                <ProgressRing done={task.subtaskDoneCount} total={task.subtaskCount} />
+                <Icon
+                  name={expanded ? 'chevron-up' : 'chevron-down'}
+                  size="sm"
+                  aria-hidden
+                  className={styles.subtaskChevron}
+                />
+              </button>
+            )}
+            {/* Always last (rightmost) so its position stays fixed whether or
               not the subtask cluster above is present — .main's flex:1
               already pushes .right flush to the row's edge, so ordering this
               last is enough; no reserved space needed. */}
-          <StarButton
-            taskId={task.id}
-            listId={task.listId}
-            favorite={task.favorite}
-            onMutated={onMutated}
-            onOptimisticChange={(next) => onFieldPatch?.({ favorite: next })}
-          />
-        </div>
-        {isMobile && (
-          // The only region a swipe-to-reveal drag can start from — sits in
-          // .row's own empty right padding (beyond .right's actual content),
-          // so it never overlaps the star/progress-ring tap targets. See
-          // .swipeEdgeZone in TaskItem.module.css.
-          <div
-            className={styles.swipeEdgeZone}
-            aria-hidden
-            data-no-dnd
-            onPointerDown={handleRowPointerDown}
-            onPointerMove={handleRowPointerMove}
-            onPointerUp={handleRowPointerUp}
-            onPointerCancel={handleRowPointerUp}
-          />
-        )}
+            <StarButton
+              taskId={task.id}
+              listId={task.listId}
+              favorite={task.favorite}
+              onMutated={onMutated}
+              onOptimisticChange={(next) => onFieldPatch?.({ favorite: next })}
+            />
+          </div>
+          {isMobile && (
+            // The only region a swipe-to-reveal drag can start from — sits in
+            // .row's own empty right padding (beyond .right's actual content),
+            // so it never overlaps the star/progress-ring tap targets. See
+            // .swipeEdgeZone in TaskItem.module.css.
+            <div
+              className={styles.swipeEdgeZone}
+              aria-hidden
+              data-no-dnd
+              onPointerDown={handleRowPointerDown}
+              onPointerMove={handleRowPointerMove}
+              onPointerUp={handleRowPointerUp}
+              onPointerCancel={handleRowPointerUp}
+            />
+          )}
         </div>
       </div>
 

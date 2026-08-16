@@ -467,7 +467,48 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.21.0** (`0.20.1` → `0.21.0` is Issue 5 of
+Current version: **0.21.1** (`0.21.0` → `0.21.1` is Issue 4 of
+`docs/data-fetching-and-mobile-interaction-findings.md` — a long-press
+row-lift for manual reorder competed with the mobile carousel's own
+horizontal swipe-to-navigate gesture, since both claimed touch gestures
+starting anywhere on a task row. Previously investigated and deliberately
+left unfixed pending a product decision between narrowing drag-initiation
+to a dedicated handle vs. a stricter gesture-disambiguation heuristic;
+decided on the former. `TaskItem.tsx`'s `rowDragListeners` (forwarded onto
+`.row` so a press-and-drag anywhere could lift it) is now withheld on
+mobile (`dragDisabled || isMobile ? undefined : listeners`) — kept
+unchanged on desktop, where MouseSensor's own 8px activation distance
+already made whole-row forwarding safe. Touch reorder now goes exclusively
+through the existing `.dragHandle` button, which previously only worked on
+hover-capable devices (`@media (hover: none) { pointer-events: none }`,
+plus a 12x12px hit target far under any usable touch-target size — both
+by design, back when touch reorder went through the whole row instead).
+Added a `@media (max-width: 768px)` override making the handle interactive
+and enlarging its hit target to 18x18px, kept within `.row`'s own 20px left
+padding gutter so it doesn't encroach on the checkbox immediately to its
+right; the visual glyph (a fixed 12x12 SVG) stays the same apparent size —
+only the invisible hit area grows. Verified live end-to-end on the iPhone
+17 Simulator's real Safari/WebKit (not just Chromium preview tooling, given
+this is exactly the touch-gesture-arbitration class of bug that tooling
+can't reproduce): a long-press-and-drag starting on the handle
+successfully reordered a row past several siblings; a horizontal swipe
+starting on the row body (title, checkbox, star — anywhere but the handle)
+now cleanly navigates the carousel to the next list instead of being
+captured as a drag or leaving a stuck-looking row state. While live-testing
+this fix, also used the same Simulator session to close out Issue 3 (tap
+latency) from the same findings doc: re-examined `TaskItem.tsx`'s pointer
+handlers and found the doc's original leading hypothesis — that the mobile
+swipe-to-reveal pointer handlers fire on every tap, not just swipes — no
+longer matches the code; those handlers are scoped only to a dedicated
+`.swipeEdgeZone` element in the row's own right padding, not the checkbox,
+star, or row body. Live-tapped the checkbox on the real Simulator and
+confirmed the existing `useOptimistic` update (already in place on both
+the checkbox and star before this session) flips state and cascades
+through the derived task count/filter membership with no perceptible
+added delay. No code change made for Issue 3 — closed as not reproducible
+against the current code, given no profiler access from this environment
+to get harder timing numbers; see the findings doc for the full writeup.
+`0.20.1` → `0.21.0` is Issue 5 of
 `docs/data-fetching-and-mobile-interaction-findings.md`, plus closing
 Issue 6 as a non-bug (docs-only, no version change of its own) — a
 deliberate product decision, not a bug fix: iPad-class viewports previously

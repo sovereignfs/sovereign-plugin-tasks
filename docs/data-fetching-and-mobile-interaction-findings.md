@@ -17,15 +17,15 @@ in place as work progresses; do not delete resolved items, mark them
 
 ## Part 1 — Issue catalog
 
-| #   | Issue                                                                       | Category                     | Data-fetching proposal addresses it? | Status                                   |
-| --- | --------------------------------------------------------------------------- | ---------------------------- | ------------------------------------ | ---------------------------------------- |
-| 1   | Subtask list refetches on every expand/collapse                             | Data fetching                | Yes — directly                       | shipped                                  |
-| 2   | Fast swiping through not-yet-visited lists shows a spinner per list         | Data fetching                | Yes — partially (prefetch scope)     | planned                                  |
-| 3   | Checkbox/star tap has perceived latency despite existing optimistic updates | Rendering / gesture handling | No                                   | planned                                  |
-| 4   | Long-press-to-bulk-select competes with carousel swipe on mobile            | Gesture arbitration          | No                                   | planned (known, previously investigated) |
-| 5   | iPad-sized viewports get the desktop layout, not the mobile one             | Breakpoint / config          | No                                   | shipped                                  |
-| 6   | Possible task-list reordering / count inconsistency                         | Correctness (unconfirmed)    | No                                   | likely not a bug                         |
-| 7   | Vertical overscroll on list scroll containers is not contained              | CSS / scroll containment     | No                                   | shipped                                  |
+| #   | Issue                                                                       | Category                     | Data-fetching proposal addresses it? | Status                                         |
+| --- | --------------------------------------------------------------------------- | ---------------------------- | ------------------------------------ | ---------------------------------------------- |
+| 1   | Subtask list refetches on every expand/collapse                             | Data fetching                | Yes — directly                       | shipped                                        |
+| 2   | Fast swiping through not-yet-visited lists shows a spinner per list         | Data fetching                | Yes — partially (prefetch scope)     | planned (design questions answered, see below) |
+| 3   | Checkbox/star tap has perceived latency despite existing optimistic updates | Rendering / gesture handling | No                                   | closed — not reproducible                      |
+| 4   | Long-press-to-bulk-select competes with carousel swipe on mobile            | Gesture arbitration          | No                                   | shipped                                        |
+| 5   | iPad-sized viewports get the desktop layout, not the mobile one             | Breakpoint / config          | No                                   | shipped                                        |
+| 6   | Possible task-list reordering / count inconsistency                         | Correctness (unconfirmed)    | No                                   | likely not a bug                               |
+| 7   | Vertical overscroll on list scroll containers is not contained              | CSS / scroll containment     | No                                   | shipped                                        |
 
 ---
 
@@ -128,7 +128,7 @@ design decisions — see Part 2.
 ### Issue 3 — Checkbox/star tap has perceived latency despite existing optimistic updates
 
 **Category:** Rendering / gesture handling
-**Status:** planned
+**Status:** closed — not reproducible against the current code
 
 **Symptom:** Marking a task done, or starring one, via tap sometimes reads
 as slow or unresponsive on mobile.
@@ -165,13 +165,36 @@ proposing a specific fix.
 
 **Relation to data-fetching proposal:** Not addressed by it.
 
+**Investigation notes (closing):** Investigated live on the iPhone 17
+Simulator's real Safari/WebKit (this environment has no access to Safari's
+own Web Inspector/Timeline profiler, so this was a behavioral/visual check —
+tap, then observe — not a true JS profile; that limitation was flagged
+up front and still applies). Tapping the checkbox correctly triggered the
+optimistic update and the full derived re-render (task count and
+Active-filter membership both updated immediately) with no perceptible
+hang. Separately, re-reading the current code found candidate #1 above (the
+swipe pointer handlers firing on every tap) does **not** apply: in the
+current `TaskItem.tsx`, `handleRowPointerDown`/`Move`/`Up` are attached only
+to a dedicated `.swipeEdgeZone` element sitting in the row's own right
+padding (added for the mobile swipe-to-reveal feature), not to the row as a
+whole, the checkbox, or the star — a tap on either never reaches those
+handlers at all. This may have been true at the time this doc was
+originally written, or may have been a misreading then; either way it no
+longer holds. Given (a) both tap targets already use `useOptimistic` ahead
+of the network call, (b) the leading suspected cause doesn't apply to the
+current code, and (c) live testing produced no reproducible lag, this is
+closed as not reproducible with the tooling available here. Re-open only
+with a real-device screen recording showing a clear, timestamped
+tap-to-response gap (same bar as Issue 6's closure) — general Safari
+profiling access, not available in this environment, would be the more
+direct way to pick this back up if it recurs.
+
 ---
 
 ### Issue 4 — Long-press-to-bulk-select competes with carousel swipe on mobile
 
 **Category:** Gesture arbitration
-**Status:** planned (known, previously investigated, intentionally left
-unfixed pending a product decision)
+**Status:** shipped
 
 **Symptom:** A swipe gesture on a task row can fail to navigate the
 carousel, sometimes leaving a stuck-looking hover/reveal state on the row
@@ -199,7 +222,40 @@ claimed as a drag vs. left for the carousel). Do not attempt a quick patch
 without that decision — the previous investigation explicitly flagged this
 as a tradeoff, not an oversight.
 
+**Decision:** (a) — narrow drag-initiation back to a dedicated handle.
+
 **Relation to data-fetching proposal:** Not addressed by it.
+
+**Implementation notes:** `TaskItem.tsx`'s `rowDragListeners` (previously
+forwarded onto `.row` whenever a reorder was possible, so a press-and-drag
+anywhere on the row could lift it) is now withheld on mobile —
+`dragDisabled || isMobile ? undefined : listeners` — leaving it unchanged
+on desktop, where MouseSensor's own 8px activation distance already made
+whole-row forwarding safe (no wobbly-swipe-vs-drag ambiguity exists with a
+mouse). Touch reorder now goes exclusively through the existing
+`.dragHandle` button. That button previously only worked on hover-capable
+devices at all — `@media (hover: none) { pointer-events: none }` plus a
+12x12px hit target, both deliberate when touch reorder went through the
+whole row instead and the visible handle was just a desktop nicety. Added a
+`@media (max-width: 768px)` override (this plugin's mobile breakpoint, see
+Issue 5) making the handle interactive on touch and enlarging its hit
+target to 18x18px, kept inside `.row`'s own 20px left padding gutter
+(`--sv-space-5`) so it doesn't encroach on the checkbox's own tap target
+immediately to its right — the visual glyph (`GripIcon`, a fixed 12x12 SVG)
+stays the same apparent size, only the invisible hit area grows.
+
+Verified live end-to-end on the iPhone 17 Simulator's real Safari/WebKit —
+deliberately not just the Chromium-based preview tooling used for most
+other fixes in this doc, since gesture arbitration is exactly the class of
+bug that tooling can't reproduce (no real multi-touch/native scroll-snap
+behavior). A long-press-and-drag starting on the handle successfully
+reordered a row past several siblings (confirmed the new order persisted
+through a full page reload). A horizontal swipe starting on the row body
+(title, checkbox, star, or anywhere else that isn't the handle) now cleanly
+navigates the carousel to the next list, confirmed both by the active dot
+indicator advancing and the next list's own content rendering — no stuck
+drag-lift state, no missed navigation. Real-device confirmation (vs.
+Simulator) is still outstanding, same caveat as Issue 7's overscroll fix.
 
 ---
 
@@ -379,26 +435,86 @@ currently has none.
 
 ### Open design questions — resolve before broad implementation
 
-1. **Scope: plugin-local vs. reusable platform primitive.** The platform
-   repo's own design-system-first convention prefers reusable capability to
-   ship from `@sovereignfs/ui`/the SDK rather than plugin-locally "to be
-   promoted later." A generic list/detail client-cache primitive is
-   plausible as a shared capability, but this plugin's own data shape
-   (lists → tasks → subtasks) may not generalize cleanly to every plugin's
-   needs. Default recommendation: design the shape as if it could be
-   promoted (clear cache/invalidate/prefetch API surface, not tangled into
-   carousel-specific state), but land the first implementation plugin-local
-   given the open questions below aren't yet resolved.
-2. **Staleness tolerance.** Is "stale until the next navigation triggers a
-   refetch" acceptable (current mobile behavior), or does this need
-   cross-tab/cross-device freshness (e.g. a task edited in another session
-   should be reflected here without an explicit navigation)? This
-   materially changes the design — a pure client cache with no
-   invalidation signal cannot satisfy the latter without some form of
-   push/poll mechanism.
-3. **Persistence.** In-memory only (current mobile behavior — lost on a
-   hard reload) vs. a persisted store (e.g. IndexedDB) that survives a
-   reload for a faster cold start.
+1. **Scope: plugin-local vs. reusable platform primitive. Decided:
+   plugin-local for now.** The platform repo's own design-system-first
+   convention prefers reusable capability to ship from `@sovereignfs/ui`/the
+   SDK rather than plugin-locally "to be promoted later." The alternative —
+   a shared, generic list/detail client-cache primitive living in
+   `@sovereignfs/ui` or the SDK — would look roughly like a small
+   `createEntityCache<T>()` factory: keyed entry storage, a
+   staleness/signature check per entry (this plugin's subtask cache, Issue
+   1, already prototypes exactly this shape), an invalidate/prefetch API,
+   and (per decision 3 below) an optional IndexedDB-backed persistence
+   layer. The case _for_ building it there now: Tasks is very unlikely to
+   be the only plugin that ever wants "list of items, cached client-side,
+   revalidated on some signal, optionally persisted" — a Notes-like plugin,
+   a Contacts-like plugin, anything with a browse-many/view-one shape would
+   want the same thing, and building it twice independently risks the two
+   diverging in ways that make a later promotion harder, not easier. The
+   case _against_ doing it now, which is why plugin-local wins: there is
+   currently exactly **one** real consumer (this plugin), and no second
+   plugin with a concrete, known shape to design the abstraction against —
+   a shared primitive designed from one caller's needs tends to either
+   overfit that caller (the "shared" abstraction quietly assumes
+   lists→tasks→subtasks) or overgeneralize speculatively (config knobs for
+   needs nobody has yet), and both are more expensive to unwind later than
+   promoting a working plugin-local implementation once a second real
+   consumer shows up. This is a plain YAGNI call, not a rejection of the
+   platform's DS-first convention — the convention itself is about not
+   building reusable-shaped things speculatively either. Land plugin-local,
+   but write the internal API surface (clear/invalidate/prefetch, not
+   tangled into carousel-specific state) as if it could be lifted wholesale
+   into a `createEntityCache<T>()`-shaped primitive later, so promotion is a
+   cut-and-paste plus generalization, not a rewrite.
+2. **Staleness tolerance. Recommended: revalidate-on-focus; not yet given
+   final sign-off.** Today's behavior — a list fetched once this session
+   never refetches until an explicit navigation forces it — is agreed
+   problematic: a task edited from another tab, another device, or (once
+   collaboration ships) another user sharing the list would silently not
+   appear. Recommended solution is **revalidate-on-focus**: when a
+   cached-but-stale-by-time list's slide becomes active again (carousel
+   swipe back to it, tab/window regains focus, or the app returns from
+   background — the standard SWR/React Query "revalidate on focus"
+   pattern), kick off a background refetch and patch the cache in place if
+   the result differs, without blocking the already-rendered (stale) view
+   or showing a spinner over it. This is a deliberate middle ground: not
+   full cross-tab/cross-device push (no realtime SSE subscription per list,
+   which Tasks' current single-user-per-list model doesn't yet need — see
+   `docs/rfcs/` for the platform's existing SSE/notification machinery if
+   that changes once collaboration ships), but also not "stale forever
+   until next hard navigation." Concretely: each cache entry gains a
+   `fetchedAt` timestamp; a small `STALE_AFTER_MS` threshold (a candidate
+   starting point: a minute or so — short enough that a same-session edit
+   from another tab shows up quickly, long enough that rapid carousel
+   swiping back and forth doesn't refetch on every pass) gates whether
+   becoming-active triggers a background revalidate or is still considered
+   fresh. This needs the plugin owner's explicit confirmation before
+   implementation — flagged here as the recommendation, not yet a closed
+   decision.
+3. **Persistence. Decided: IndexedDB.** No real counter-argument to
+   IndexedDB over in-memory-only — a persisted cache surviving a hard
+   reload for a faster cold start is a clear win with no real downside for
+   this data (task lists are small, non-sensitive within the user's own
+   session, and already server-authoritative on every mutation). Three
+   implementation considerations to carry into the actual build: (a) don't
+   hand-roll the IndexedDB wrapper — use a thin, well-established helper
+   library (e.g. `idb`) rather than raw `indexedDB.open()`/transaction
+   boilerplate; (b) check whether the SDK's device-storage primitives
+   (`device-only-kv.ts`-style, built for the device bridge/offline-first
+   work — see `runtime/src/` and RFC 0080/0083 in the platform repo) already
+   cover "small per-user persisted key/value store" before building a
+   parallel mechanism — reuse if the shape fits, even though this is a
+   plugin-local cache rather than the device-bridge-specific use case those
+   were built for; (c) **mandatory clear-on-logout.** The platform has a
+   real, shipped incident on record for exactly this failure mode — the
+   `0.76.1` hotfix in the platform's own `CLAUDE.md`, where a cache lacking
+   per-user partitioning and a logout-clear leaked a previous user's cached
+   content to the next person on a shared device. Any IndexedDB store this
+   work adds must be either explicitly keyed per-user or wiped on logout
+   (ideally both), verified the same way that incident's fix was — don't
+   assume "it's just task titles, not credentials" is enough; the incident
+   proves that reasoning already failed once at the platform level for
+   materially similar cached, non-credential content.
 
 ### Recommended sequencing
 

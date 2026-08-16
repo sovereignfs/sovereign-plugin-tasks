@@ -85,10 +85,35 @@
    / focus, below) and drag-reorder isn't a usable touch gesture here — so make
    it inert to touch, otherwise a scroll that happens to start on this invisible
    12px corner is captured as a drag and the list won't scroll (plan finding
-   1.5). Desktop and hybrid touch-laptops (hover: hover) keep it draggable. */
+   1.5). Desktop and hybrid touch-laptops (hover: hover) keep it draggable.
+   Overridden below at this plugin's own mobile breakpoint now that touch
+   reorder is routed through this handle exclusively (findings doc Issue 4) —
+   the `@media (max-width: 768px)` block's `pointer-events: auto` wins the
+   cascade there via source order, since both rules are equally specific. */
 @media (hover: none) {
   .dragHandle {
     pointer-events: none;
+  }
+}
+
+/* Mobile: this handle is now the *only* way to start a reorder drag (see
+   TaskItem.tsx's rowDragListeners — whole-row touch forwarding was removed
+   so a swipe starting anywhere else on the row is unambiguously the
+   carousel's navigate gesture, not a competing drag lift). It can't stay
+   hover-revealed-only (there's no hover state on touch) or 12x12 (well under
+   any usable touch-target size), so both are overridden here. The enlarged
+   box stays within .row's own 20px left padding gutter (--sv-space-5) so it
+   doesn't encroach on the checkbox's tap target immediately to its right;
+   the visual glyph (GripIcon, fixed 12x12 SVG) stays centered and the same
+   apparent size — only the invisible hit area grows. */
+@media (max-width: 768px) {
+  .dragHandle {
+    opacity: 1;
+    pointer-events: auto;
+    left: 1px;
+    top: calc(var(--sv-space-3) - 3px);
+    width: 18px;
+    height: 18px;
   }
 }
 
