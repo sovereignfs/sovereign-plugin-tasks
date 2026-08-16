@@ -467,7 +467,17 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.18.7** (`0.18.6` → `0.18.7` extends the same
+Current version: **0.19.0** (`0.18.7` → `0.19.0` reworks the self-rendered
+mobile Apps drawer's contents and ordering (`app/layout.tsx`), reported live
+as showing "Account" and "Launcher" as generic plugin tiles alongside
+"Console" in whatever order `sdk.plugins.list()` happened to return. Account
+is now excluded from the drawer entirely (reached via the platform shell's
+own account menu, not duplicated here); the Launcher entry is relabeled
+"Home" and always pinned first; Console is always pinned last; any other
+installed sovereign/community plugin keeps its natural `sdk.plugins.list()`
+order in between via a stable sort (`footerAppRank` in `app/layout.tsx`) — a
+feature change to the drawer's actual navigation model, not a cosmetic
+tweak, hence the minor bump rather than a patch. `0.18.6` → `0.18.7` extends the same
 `translateZ(0)` compositing-layer fix from `TaskItem.module.css`'s
 `.rowContainer` (0.18.5) to the plugin's other three `position: sticky`
 elements, reported live as a large empty gap opening up above the list

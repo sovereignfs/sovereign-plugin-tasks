@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "fs.sovereign.tasks",
   "name": "Tasks",
-  "version": "0.18.7",
+  "version": "0.19.0",
   "description": "A minimal, privacy-first task manager.",
   "type": "sovereign",
   "runtime": "native",
