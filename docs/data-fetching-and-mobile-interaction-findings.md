@@ -17,15 +17,15 @@ in place as work progresses; do not delete resolved items, mark them
 
 ## Part 1 — Issue catalog
 
-| #   | Issue                                                                       | Category                     | Data-fetching proposal addresses it? | Status                                         |
-| --- | --------------------------------------------------------------------------- | ---------------------------- | ------------------------------------ | ---------------------------------------------- |
-| 1   | Subtask list refetches on every expand/collapse                             | Data fetching                | Yes — directly                       | shipped                                        |
-| 2   | Fast swiping through not-yet-visited lists shows a spinner per list         | Data fetching                | Yes — partially (prefetch scope)     | planned (design questions answered, see below) |
-| 3   | Checkbox/star tap has perceived latency despite existing optimistic updates | Rendering / gesture handling | No                                   | closed — not reproducible                      |
-| 4   | Long-press-to-bulk-select competes with carousel swipe on mobile            | Gesture arbitration          | No                                   | shipped                                        |
-| 5   | iPad-sized viewports get the desktop layout, not the mobile one             | Breakpoint / config          | No                                   | shipped                                        |
-| 6   | Possible task-list reordering / count inconsistency                         | Correctness (unconfirmed)    | No                                   | likely not a bug                               |
-| 7   | Vertical overscroll on list scroll containers is not contained              | CSS / scroll containment     | No                                   | shipped                                        |
+| #   | Issue                                                                       | Category                     | Data-fetching proposal addresses it? | Status                             |
+| --- | --------------------------------------------------------------------------- | ---------------------------- | ------------------------------------ | ---------------------------------- |
+| 1   | Subtask list refetches on every expand/collapse                             | Data fetching                | Yes — directly                       | shipped                            |
+| 2   | Fast swiping through not-yet-visited lists shows a spinner per list         | Data fetching                | Yes — partially (prefetch scope)     | shipped (mobile) — desktop pending |
+| 3   | Checkbox/star tap has perceived latency despite existing optimistic updates | Rendering / gesture handling | No                                   | closed — not reproducible          |
+| 4   | Long-press-to-bulk-select competes with carousel swipe on mobile            | Gesture arbitration          | No                                   | shipped                            |
+| 5   | iPad-sized viewports get the desktop layout, not the mobile one             | Breakpoint / config          | No                                   | shipped                            |
+| 6   | Possible task-list reordering / count inconsistency                         | Correctness (unconfirmed)    | No                                   | likely not a bug                   |
+| 7   | Vertical overscroll on list scroll containers is not contained              | CSS / scroll containment     | No                                   | shipped                            |
 
 ---
 
@@ -92,7 +92,7 @@ fetch either.
 ### Issue 2 — Fast swiping through not-yet-visited lists shows a spinner per list
 
 **Category:** Data fetching / caching
-**Status:** planned
+**Status:** shipped (mobile) — desktop adoption still pending, see Part 2
 
 **Symptom:** Swiping quickly through several lists that haven't been viewed
 yet in the current session shows a loading spinner for each one in turn.
@@ -120,8 +120,91 @@ proposal, at the cost of a heavier initial load. Which of these is right
 depends on the answers to Part 2's open design questions (particularly
 staleness tolerance and how many lists a typical instance has).
 
-**Relation to data-fetching proposal:** Directly in scope, but blocked on
-design decisions — see Part 2.
+**Relation to data-fetching proposal:** Directly in scope — this is the
+first slice of Part 2's proposal to actually ship.
+
+**Decision:** option (c)-leaning — background-warm every list's tasks
+shortly after mount, not just ±1 neighbors, per Part 2's now-settled design
+questions (plugin-local scope, revalidate-on-focus, IndexedDB persistence).
+
+**Implementation notes:** New plugin-local module,
+`app/_lib/listCache.ts`, holds the two pieces of the settled Part 2 design
+that are about persistence/staleness rather than React state shape
+(`MobileTasksCarousel.tsx`'s existing `listState` is still the in-memory
+source of truth — this only adds a durable mirror and a couple of
+timing-driven triggers around it):
+
+- `readPersistedList`/`persistList` — a thin wrapper around
+  `@sovereignfs/sdk/offline` (the SDK's existing IndexedDB-backed,
+  plugin-scoped, encrypted-at-rest KV cache, RFC 0074), not a hand-rolled
+  IndexedDB store. This was a deliberate choice, not the path of least
+  resistance: `runtime/src/complete-sign-in.ts` calls `offline.clearAll()`
+  on every successful new sign-in, which is the platform's only real
+  "purge every cache on the logout/session boundary" guarantee — it covers
+  a session ending by explicit sign-out, by expiring, or by the tab simply
+  being closed, none of which a plugin-local "clear on the sign-out
+  button's click handler" could catch on its own. Building a separate store
+  here would have meant either losing that guarantee or re-deriving it —
+  exactly the failure mode the platform's own `0.76.1` hotfix (see the
+  platform repo's `CLAUDE.md`) already had a real incident over: a cache
+  that lacked per-user partitioning and a logout-clear leaked a previous
+  user's cached content to the next person on a shared device. No manifest
+  change was needed to use it — `@sovereignfs/sdk/offline`'s own module has
+  no gate requiring the `offline` manifest tier to be declared; that field
+  only controls a separate platform behavior (service-worker-precaching the
+  plugin's bare route for genuine no-network access), which this doesn't
+  use. See `listCache.ts`'s own doc comment for the full reasoning.
+- `STALE_AFTER_MS` (60 seconds) — the revalidate-on-focus threshold.
+
+Wired into `MobileTasksCarousel.tsx`:
+
+- **Cold-start hydration:** `loadList` now checks a `listStateRef` (a
+  render-synced ref, not a `loadList` dependency, so its identity/deps stay
+  unchanged — matching the file's existing `loadingIdsRef` stability
+  convention) for an existing in-memory entry before fetching; if none
+  exists (the common case right after a page reload, since the in-memory
+  cache always starts empty), it tries the persisted cache first and seeds
+  `listState` from it immediately if found, before the real network fetch
+  — which still always runs and overwrites it once it resolves. This
+  removes the loading skeleton for any list that was fetched in a _previous_
+  session, not just previously this session.
+- **Prefetch scope (the actual fix):** the mount/`activeIndex` effect still
+  fetches `[activeIndex-1, activeIndex, activeIndex+1]` first (unchanged,
+  keeps a single swipe instant), then loops over every other list and
+  Starred and fires `loadList` for any not yet cached. A fast, continuous
+  swipe past several never-visited lists in a row no longer outruns
+  prefetching, since by the time it reaches list N, list N was very likely
+  already warming in the background since mount. Heavier initial request
+  burst than before (every list's tasks + prefs fetch fires roughly at
+  once) — an accepted tradeoff given this plugin's realistic list counts (a
+  personal task manager, not hundreds of lists); revisit if a real account
+  with dozens-plus of lists reports this as a problem.
+- **Revalidate-on-focus:** two triggers, both reusing `loadList`'s existing
+  "keep showing already-loaded content, refresh quietly in the background"
+  status handling (previously only exercised by the `refreshSignal` path) —
+  (1) the active slide becoming active again (the same mount/`activeIndex`
+  effect checks `Date.now() - entry.fetchedAt > STALE_AFTER_MS` for the
+  newly-active list and refetches if stale), and (2) the tab/window
+  regaining focus while an already-active slide has gone stale (a
+  `visibilitychange`/`focus` listener registered once, reading current
+  state through refs rather than depending on it directly, so it isn't
+  torn down and re-subscribed on every mutation).
+
+Verified live in the Chromium-based browser preview (mobile viewport,
+375×812): after a single cold load, `indexedDB.databases()` showed real,
+persisted entries under `fs.sovereign.tasks` for every list in the test
+account (11 real lists + Starred), not just the ±1 neighbors — confirming
+the background-warm-all fetch actually ran and its results were persisted.
+A full page reload immediately after showed the same real task data with
+no loading skeleton and no console errors — the cold-start hydration path.
+Toggling a task's checkbox still correctly updated the list's task count
+and completed count with no console errors, confirming the new
+`fetchedAt`/persistence plumbing didn't disturb the existing mutation
+(`patchTask`) path. The 60-second revalidate-on-focus threshold itself
+wasn't independently re-verified beyond code review/typecheck — it reuses
+`loadList`'s already-live-tested "stale content stays visible during a
+background refetch" behavior, and waiting out a real 60-second window
+wasn't practical to script in this session.
 
 ---
 
@@ -418,14 +501,22 @@ real-device confirmation is still outstanding.
 ### Current state
 
 - **Mobile carousel** (`MobileTasksCarousel.tsx`): keeps its own
-  client-side cache (`listState`, keyed by list id), populated lazily.
-  Never evicts an entry once loaded. The mount/`activeIndex`-change effect
-  only eagerly prefetches the active slide ± 1 neighbor (see Issue 2).
-  Subtasks have no caching layer at all (Issue 1).
+  client-side cache (`listState`, keyed by list id), populated lazily,
+  never evicted once loaded. As of Issue 2's fix (shipped), the
+  mount/`activeIndex`-change effect eagerly prefetches the active slide ±1
+  neighbor first, then background-warms every other list too, and
+  revalidates the active entry on a staleness timeout when it becomes
+  active again or the tab/window regains focus. Persisted to IndexedDB
+  (`app/_lib/listCache.ts`, via `@sovereignfs/sdk/offline`) for a faster
+  cold start across reloads. Subtasks have their own separate, narrower
+  cache (Issue 1, shipped, `SubtaskList.tsx`'s own module-level `Map`).
 - **Desktop three-column layout**: no client-side cache. Every navigation
   between lists is a full server round trip through Next.js routing
   (`page.tsx` re-fetches on every route change). There is currently no
-  mobile-carousel-equivalent decoupled cache on desktop at all.
+  mobile-carousel-equivalent decoupled cache on desktop at all — **still
+  true after Issue 2's fix**, which only touched the mobile carousel; see
+  "Recommended sequencing" below for why desktop adoption is deliberately a
+  separate, not-yet-started follow-up.
 
 ### Proposal (as stated by the plugin owner)
 
@@ -466,8 +557,7 @@ currently has none.
    tangled into carousel-specific state) as if it could be lifted wholesale
    into a `createEntityCache<T>()`-shaped primitive later, so promotion is a
    cut-and-paste plus generalization, not a rewrite.
-2. **Staleness tolerance. Recommended: revalidate-on-focus; not yet given
-   final sign-off.** Today's behavior — a list fetched once this session
+2. **Staleness tolerance. Decided: revalidate-on-focus.** Today's behavior — a list fetched once this session
    never refetches until an explicit navigation forces it — is agreed
    problematic: a task edited from another tab, another device, or (once
    collaboration ships) another user sharing the list would silently not
@@ -488,45 +578,60 @@ currently has none.
    from another tab shows up quickly, long enough that rapid carousel
    swiping back and forth doesn't refetch on every pass) gates whether
    becoming-active triggers a background revalidate or is still considered
-   fresh. This needs the plugin owner's explicit confirmation before
-   implementation — flagged here as the recommendation, not yet a closed
-   decision.
-3. **Persistence. Decided: IndexedDB.** No real counter-argument to
-   IndexedDB over in-memory-only — a persisted cache surviving a hard
-   reload for a faster cold start is a clear win with no real downside for
-   this data (task lists are small, non-sensitive within the user's own
-   session, and already server-authoritative on every mutation). Three
-   implementation considerations to carry into the actual build: (a) don't
-   hand-roll the IndexedDB wrapper — use a thin, well-established helper
-   library (e.g. `idb`) rather than raw `indexedDB.open()`/transaction
-   boilerplate; (b) check whether the SDK's device-storage primitives
-   (`device-only-kv.ts`-style, built for the device bridge/offline-first
-   work — see `runtime/src/` and RFC 0080/0083 in the platform repo) already
-   cover "small per-user persisted key/value store" before building a
-   parallel mechanism — reuse if the shape fits, even though this is a
-   plugin-local cache rather than the device-bridge-specific use case those
-   were built for; (c) **mandatory clear-on-logout.** The platform has a
-   real, shipped incident on record for exactly this failure mode — the
-   `0.76.1` hotfix in the platform's own `CLAUDE.md`, where a cache lacking
-   per-user partitioning and a logout-clear leaked a previous user's cached
-   content to the next person on a shared device. Any IndexedDB store this
-   work adds must be either explicitly keyed per-user or wiped on logout
-   (ideally both), verified the same way that incident's fix was — don't
-   assume "it's just task titles, not credentials" is enough; the incident
-   proves that reasoning already failed once at the platform level for
-   materially similar cached, non-credential content.
+   fresh. **Implemented** as part of Issue 2's fix — see that section for
+   the concrete mechanism.
+3. **Persistence. Decided: IndexedDB — implemented via `@sovereignfs/sdk/offline`,
+   not a hand-rolled store or the `idb` library.** A persisted cache
+   surviving a hard reload for a faster cold start is a clear win with no
+   real downside for this data (task lists are small, non-sensitive within
+   the user's own session, and already server-authoritative on every
+   mutation). The three considerations originally flagged here, and how
+   each actually resolved during implementation: (a) _don't hand-roll the
+   IndexedDB wrapper_ — resolved by not needing one at all, see (b); (b)
+   _check whether an existing SDK primitive already covers this_ — checked
+   both device-storage primitives in the platform repo:
+   `device-only-kv.ts` (RFC 0093 `device-only` tier) turned out to be the
+   wrong fit despite the name similarity — it's gated behind a real
+   biometric/passcode device-auth prompt on every operation, appropriate
+   for genuinely sensitive per-record data, completely wrong UX for "cache
+   a task list for speed." `@sovereignfs/sdk/offline` (RFC 0074's
+   `offline`-tier read cache) turned out to be the right fit instead —
+   silent, no auth gate, plugin-scoped, already exactly this shape (a
+   small JSON-serializable value per key); (c) **mandatory
+   clear-on-logout** — satisfied by reusing that same module rather than
+   built separately: `runtime/src/complete-sign-in.ts` already calls
+   `offline.clearAll()` on every new sign-in, which is the platform's only
+   real guarantee covering every way a previous session can end (explicit
+   sign-out, expiry, or the tab just being closed) — see `listCache.ts`'s
+   own doc comment and Issue 2's implementation notes for the full
+   reasoning on why this was judged safer than building a separate store
+   and re-deriving that guarantee.
 
 ### Recommended sequencing
 
-1. **Ship Issue 1 (subtask caching) first.** Narrow, self-contained, no
-   open design questions block it, and it directly validates the caching
-   approach at small scale before committing to the bigger design.
-2. **Resolve the three open design questions above** — ideally with the
-   plugin owner directly, since they're product/UX tradeoffs, not
-   technical unknowns.
-3. **Design and implement the broader list-level cache + desktop
-   adoption** as a follow-up once scope is settled, informed by what Issue
-   1's implementation surfaces in practice.
+1. ~~Ship Issue 1 (subtask caching) first.~~ **Done.**
+2. ~~Resolve the three open design questions above.~~ **Done** — see each
+   decision above.
+3. ~~Design and implement the broader list-level cache~~ **Done for
+   mobile** — see Issue 2's implementation notes. **Desktop adoption is
+   still not started** and is deliberately being kept as its own separate
+   follow-up rather than folded into the same change: desktop's current
+   data flow (`page.tsx` as a plain server component, re-fetching
+   everything fresh on every route change via Next.js's own routing) is
+   architecturally unrelated to the mobile carousel's client-driven,
+   never-unmounted SPA-in-a-tab model that `listState`/`listCache.ts` were
+   built against — adopting the same caching approach there means either
+   converting desktop's data flow to be client-cache-driven too (a real,
+   separate architectural change touching `TasksPane`, `ListSidebar`, and
+   `TaskDetailPane`'s prop flow, not a drop-in reuse of what mobile just
+   got) or finding a different, desktop-appropriate mechanism (e.g. leaning
+   on Next.js's own `<Link>` prefetching, not yet investigated for whether
+   it already provides some of this for free). Desktop currently has no
+   reported bug or complaint driving this — Issue 2's own symptom was
+   mobile-swipe-specific — so there's no urgency forcing it into the same
+   push as a bounded, already-verified mobile fix. Whoever picks this up
+   next should start by investigating Next.js's built-in prefetch behavior
+   for this route shape before assuming a full rewrite is necessary.
 
 ---
 

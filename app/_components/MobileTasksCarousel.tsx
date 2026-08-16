@@ -24,6 +24,7 @@ import ListSidebar from '../ListSidebar';
 import TasksPane from '../[listId]/TasksPane';
 import { getOrCreatePrefs, getStarredTasks, getTask, getTasks } from '../_lib/actions';
 import { listDotColor } from '../_lib/colors';
+import { persistList, readPersistedList, STALE_AFTER_MS } from '../_lib/listCache';
 import type { ListRow, TaskRow } from '../_lib/types';
 import { STARRED_LIST_ID } from '../_lib/virtualLists';
 import TaskDetailPane, { type DetailTask } from './TaskDetailPane';
@@ -88,6 +89,11 @@ interface ListState {
   tasks: TaskRow[];
   showCompleted: boolean;
   status: 'loading' | 'loaded' | 'error';
+  /** `Date.now()` this entry was last fetched from the server — `0` for an
+   *  entry that was never successfully fetched (a fresh placeholder, or an
+   *  error state). Drives the revalidate-on-focus check below; see
+   *  `_lib/listCache.ts`'s `STALE_AFTER_MS`. */
+  fetchedAt: number;
 }
 
 interface Props {
@@ -208,6 +214,15 @@ export default function MobileTasksCarousel({
   // React's dev-mode Strict Mode double-invoke — or a fast swipe past the
   // same neighbor twice before its first load settles — can race past.
   const loadingIdsRef = useRef<Set<string>>(new Set());
+  // Always-fresh mirror of listState for loadList to read without taking a
+  // dependency on it — plain assignment during render, not an effect, so it
+  // never lags a render behind. loadList's own useCallback deps stay `[]`
+  // (see below) so its identity — and every effect keyed on it — stays
+  // stable across every listState change, matching the file's existing
+  // stability conventions (loadingIdsRef above, refreshSignal's own doc
+  // comment further down).
+  const listStateRef = useRef(listState);
+  listStateRef.current = listState;
 
   // null when on the Lists index (0) or the Starred slide (1, its own cache
   // entry lives under STARRED_LIST_ID instead of a real ListRow).
@@ -221,6 +236,26 @@ export default function MobileTasksCarousel({
   const loadList = useCallback(async (listId: string) => {
     if (loadingIdsRef.current.has(listId)) return;
     loadingIdsRef.current.add(listId);
+
+    // Cold-start hydration (findings doc Issue 2 / Part 2 — IndexedDB
+    // persistence via _lib/listCache.ts): a list with no in-memory entry
+    // yet this session (typically right after a page reload — the
+    // in-memory cache is always empty then) gets one last chance to show
+    // real content instead of the loading skeleton, from whatever was
+    // persisted the last time it was fetched. Best-effort — a miss just
+    // falls through to the normal "show skeleton, then real data" flow
+    // below, same as before this existed. Deliberately checked via the ref
+    // (not the closed-over listState) so loadList's own identity stays
+    // stable — see listStateRef's doc comment.
+    if (!listStateRef.current[listId]) {
+      const persisted = await readPersistedList(listId);
+      if (persisted) {
+        setListState((s) =>
+          s[listId] ? s : { ...s, ...{ [listId]: { ...persisted, status: 'loaded' } } },
+        );
+      }
+    }
+
     setListState((s) => {
       const existing = s[listId];
       // A background refresh (e.g. router.refresh() after toggling a
@@ -230,14 +265,17 @@ export default function MobileTasksCarousel({
       // that unmounts and remounts TasksPane, which was the source of a
       // visible flicker on every mutation, and (combined with the cold-load
       // effect's router.replace also re-firing this for the same list right
-      // after the initial mount fetch) a double flicker on first open.
-      // 'loading' is reserved for a list's genuine first-ever fetch.
+      // after the initial mount fetch) a double flicker on first open. The
+      // hydration step above already gives the same "stay loaded, refresh
+      // quietly" treatment to a persisted-cache hit. 'loading' is reserved
+      // for a list with genuinely nothing to show yet, from any source.
       const status = existing?.status === 'loaded' ? 'loaded' : 'loading';
       return {
         ...s,
         [listId]: {
           tasks: existing?.tasks ?? [],
           showCompleted: existing?.showCompleted ?? false,
+          fetchedAt: existing?.fetchedAt ?? 0,
           status,
         },
       };
@@ -248,21 +286,19 @@ export default function MobileTasksCarousel({
       // real list's own showCompleted before any prefs row exists.
       if (listId === STARRED_LIST_ID) {
         const tasks = await getStarredTasks();
-        setListState((s) => ({
-          ...s,
-          [listId]: { tasks, showCompleted: false, status: 'loaded' },
-        }));
+        const entry = { tasks, showCompleted: false, fetchedAt: Date.now() };
+        setListState((s) => ({ ...s, [listId]: { ...entry, status: 'loaded' } }));
+        persistList(listId, entry);
         return;
       }
       const [tasks, prefs] = await Promise.all([getTasks(listId), getOrCreatePrefs(listId)]);
-      setListState((s) => ({
-        ...s,
-        [listId]: { tasks, showCompleted: prefs?.showCompleted ?? false, status: 'loaded' },
-      }));
+      const entry = { tasks, showCompleted: prefs?.showCompleted ?? false, fetchedAt: Date.now() };
+      setListState((s) => ({ ...s, [listId]: { ...entry, status: 'loaded' } }));
+      persistList(listId, entry);
     } catch {
       setListState((s) => ({
         ...s,
-        [listId]: { tasks: [], showCompleted: false, status: 'error' },
+        [listId]: { tasks: [], showCompleted: false, fetchedAt: 0, status: 'error' },
       }));
     } finally {
       loadingIdsRef.current.delete(listId);
@@ -305,8 +341,16 @@ export default function MobileTasksCarousel({
     });
   }, []);
 
-  // Fetch the active slide plus its immediate neighbors — a single swipe
-  // never shows a loading spinner since the destination is already cached.
+  // Fetch the active slide plus its immediate neighbors first — a single
+  // swipe never shows a loading spinner since the destination is already
+  // cached. Then (findings doc Issue 2's actual fix — fast swiping past
+  // *more than one* never-visited list in a row used to outrun this
+  // neighbor-only window) background-warm every other not-yet-cached list
+  // too, so by the time a longer swipe or several swipes in a row reach
+  // them, they're very likely already loaded. Heavier initial request
+  // burst than before — an accepted tradeoff for this plugin's realistic
+  // list counts (a personal task manager, not hundreds of lists); see the
+  // findings doc for the full reasoning.
   useEffect(() => {
     const neighborIds = [activeIndex - 1, activeIndex, activeIndex + 1]
       .map((i) => (i === 1 ? STARRED_LIST_ID : lists[i - 2]?.id))
@@ -314,9 +358,52 @@ export default function MobileTasksCarousel({
     for (const id of neighborIds) {
       if (!listState[id]) loadList(id);
     }
+
+    // Revalidate-on-focus, the "slide became active" trigger (findings doc
+    // Issue 2 decision 2) — the tab/window-focus trigger is the separate
+    // effect below. Only meaningful for an entry that's actually loaded;
+    // an in-flight or errored entry is left to its own existing retry path.
+    const activeId = activeIndex === 1 ? STARRED_LIST_ID : lists[activeIndex - 2]?.id;
+    if (activeId) {
+      const entry = listState[activeId];
+      if (entry?.status === 'loaded' && Date.now() - entry.fetchedAt > STALE_AFTER_MS) {
+        loadList(activeId);
+      }
+    }
+
+    const allIds = [STARRED_LIST_ID, ...lists.map((l) => l.id)];
+    for (const id of allIds) {
+      if (!neighborIds.includes(id) && !listState[id]) loadList(id);
+    }
     // listState intentionally excluded from deps — it's the effect's own
     // output (loadList's setListState calls), not an input that should retrigger it.
   }, [activeIndex, lists, loadList]);
+
+  // Revalidate-on-focus, the other trigger: the tab/window regains focus
+  // while a stale-by-time slide is already active (e.g. the user switched
+  // apps for a while and came back). Registered once — reads the latest
+  // state via listStateRef/activeListId's own closure-free ref pattern
+  // rather than depending on listState directly, so this listener isn't
+  // torn down and re-added on every mutation.
+  const activeListIdRef = useRef(activeListId);
+  activeListIdRef.current = activeListId;
+  useEffect(() => {
+    function revalidateActiveIfStale() {
+      if (document.visibilityState !== 'visible') return;
+      const id = activeListIdRef.current;
+      if (!id) return;
+      const entry = listStateRef.current[id];
+      if (entry?.status === 'loaded' && Date.now() - entry.fetchedAt > STALE_AFTER_MS) {
+        loadList(id);
+      }
+    }
+    document.addEventListener('visibilitychange', revalidateActiveIfStale);
+    window.addEventListener('focus', revalidateActiveIfStale);
+    return () => {
+      document.removeEventListener('visibilitychange', revalidateActiveIfStale);
+      window.removeEventListener('focus', revalidateActiveIfStale);
+    };
+  }, [loadList]);
 
   // Re-fetch the active list whenever a mutation elsewhere triggers a server
   // refresh (see refreshSignal's doc comment above). Skips the first fire,

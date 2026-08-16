@@ -467,7 +467,37 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.21.1** (`0.21.0` → `0.21.1` is Issue 4 of
+Current version: **0.22.0** (`0.21.1` → `0.22.0` is Issue 2 of
+`docs/data-fetching-and-mobile-interaction-findings.md` (mobile only —
+desktop adoption is a deliberately separate, not-yet-started follow-up, see
+the doc's own "Recommended sequencing"), plus implementing Part 2's three
+previously-open design questions the plugin owner had signed off on
+(plugin-local scope, revalidate-on-focus staleness, IndexedDB persistence).
+Fast, continuous swiping past several never-visited lists in a row used to
+outrun `MobileTasksCarousel.tsx`'s ±1-neighbor-only prefetch window,
+surfacing a loading spinner per list. New module `app/_lib/listCache.ts`
+adds IndexedDB persistence (via `@sovereignfs/sdk/offline`, not a
+hand-rolled store or the `idb` library — its existing purge-on-every-new-sign-in
+guarantee, called from `runtime/src/complete-sign-in.ts` in the platform
+repo, was judged safer to reuse than to re-derive; `device-only-kv.ts` was
+checked and rejected first — wrong fit, gated behind a real biometric/passcode
+device-auth prompt) and a `STALE_AFTER_MS` (60s) staleness threshold.
+`MobileTasksCarousel.tsx`'s prefetch effect now background-warms every
+list after the ±1-neighbor window is satisfied, not just the neighbors;
+`loadList` hydrates from the persisted cache before falling through to the
+network fetch on a list with no in-memory entry yet (the common case right
+after a reload); and two new triggers revalidate a stale active entry in
+the background without disturbing the already-rendered view — becoming
+active again (swipe back to it) and the tab/window regaining focus.
+Verified live in the Chromium browser preview (mobile viewport): a cold
+load persisted real entries to IndexedDB for every list in the test
+account, not just neighbors; a subsequent reload showed the same data
+instantly with no loading skeleton; toggling a task's checkbox still
+correctly updated counts with no console errors. The revalidate-on-focus
+timing itself wasn't independently re-verified beyond code review — it
+reuses `loadList`'s already-live-tested background-refresh status handling,
+and waiting out a real 60-second window wasn't practical to script this
+session. `0.21.0` → `0.21.1` is Issue 4 of
 `docs/data-fetching-and-mobile-interaction-findings.md` — a long-press
 row-lift for manual reorder competed with the mobile carousel's own
 horizontal swipe-to-navigate gesture, since both claimed touch gestures
