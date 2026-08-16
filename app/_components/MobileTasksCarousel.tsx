@@ -12,7 +12,14 @@ import {
   useCarouselRouteSync,
 } from '@sovereignfs/ui';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import ListSidebar from '../ListSidebar';
 import TasksPane from '../[listId]/TasksPane';
 import { listDotColor } from '../_lib/colors';
@@ -94,6 +101,42 @@ interface Props {
    *  re-fetch the active slide, piggy-backing on the refresh calls already
    *  scattered through TasksPane/TaskDetailPane/etc. without touching them. */
   refreshSignal: unknown;
+  /** page.tsx's / search/page.tsx's real server-rendered output for the
+   *  current route. Rendered directly (not just used as refreshSignal) for
+   *  any route this carousel doesn't recognize as a real slide — currently
+   *  just `/tasks/search` — so that page keeps working instead of silently
+   *  showing whatever list `indexForPathname`'s own fallback lands on. See
+   *  `isCarouselRoute`'s own doc comment. */
+  children: ReactNode;
+}
+
+/**
+ * True for any pathname `indexForPathname` below maps to a *real* slide —
+ * bare `/tasks`, `/tasks/starred`, or `/tasks/<a current list's id>`. Used
+ * to gate whether this carousel renders its own slides at all, or falls
+ * back to rendering `children` (page.tsx's/search/page.tsx's real
+ * server-rendered output) directly instead — mirrors
+ * `DesktopTasksShell.tsx`'s own `activeListIdForPathname`, which this
+ * carousel's own `indexForPathname` predates and didn't originally need,
+ * since every route used to at least resolve to *some* slide.
+ *
+ * Without this, `/tasks/search` fell into `indexForPathname`'s "listId that
+ * no longer exists" fallback (its captured segment, `"search"`, never
+ * matches a real list id either) and silently showed the first list's
+ * slide instead of the real search page — the URL changed
+ * (`router.push('/tasks/search')` in this file's own footer Search icon)
+ * but the carousel had no way to represent "not a list" as anything other
+ * than "fall back to some list," so the visible content never changed.
+ * `/tasks/search` is the only route in this bucket today, but the check is
+ * written as a real allowlist (mirroring `activeListIdForPathname`'s own
+ * choice) rather than special-casing that one path, so a future new
+ * top-level route under `/tasks/*` that isn't a list/Starred fails safe
+ * into the same `children` fallback instead of this same bug recurring.
+ */
+function isCarouselRoute(pathname: string, lists: ListRow[]): boolean {
+  if (pathname === '/tasks' || pathname === '/tasks/starred') return true;
+  const match = pathname.match(/^\/tasks\/([^/]+)$/);
+  return !!match && lists.some((l) => l.id === match[1]);
 }
 
 /** Slide index 0 is the Lists index, index 1 is the virtual Starred view
@@ -129,6 +172,7 @@ export default function MobileTasksCarousel({
   footerApps,
   launcherIconUrl,
   refreshSignal,
+  children,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -249,6 +293,7 @@ export default function MobileTasksCarousel({
   const showDetailOverlay = !!taskIdParam && (detailLoading || displayDetailTask !== null);
 
   const starredState = listState[STARRED_LIST_ID];
+  const showCarousel = isCarouselRoute(pathname, lists);
 
   return (
     <div
@@ -260,74 +305,78 @@ export default function MobileTasksCarousel({
       }
     >
       <div className={styles.carouselArea}>
-        <SwipableMobileCarousel
-          activeIndex={activeIndex}
-          onSettle={onSettle}
-          aria-label="Task lists"
-          // No dots at all with zero real lists — a brand-new account only has
-          // the Lists index + the (empty, meaningless at that point) Starred
-          // slide, and showing a 2-dot indicator for that reads as more
-          // navigable content than actually exists. Matches the old manual
-          // dots' identical `lists.length > 0` gate. `density="compact"`
-          // (RFC-less DS addition, packages/ui) halves the gap between dots —
-          // an instance with more than a handful of lists otherwise reads as
-          // a long, cramped row in a 375px viewport. See
-          // docs/ux-improvement-plan.md Task 11 for the full investigation.
-          renderIndicator={
-            lists.length > 0
-              ? (props) => (
-                  <SwipableMobileCarouselDots
-                    {...props}
-                    aria-label="Task lists"
-                    density="compact"
-                  />
-                )
-              : null
-          }
-        >
-          <SwipableMobileCarouselSlide slideKey="index" label="Lists">
-            <ListSidebar lists={lists} starredCount={starredCount} />
-          </SwipableMobileCarouselSlide>
+        {!showCarousel ? (
+          children
+        ) : (
+          <SwipableMobileCarousel
+            activeIndex={activeIndex}
+            onSettle={onSettle}
+            aria-label="Task lists"
+            // No dots at all with zero real lists — a brand-new account only has
+            // the Lists index + the (empty, meaningless at that point) Starred
+            // slide, and showing a 2-dot indicator for that reads as more
+            // navigable content than actually exists. Matches the old manual
+            // dots' identical `lists.length > 0` gate. `density="compact"`
+            // (RFC-less DS addition, packages/ui) halves the gap between dots —
+            // an instance with more than a handful of lists otherwise reads as
+            // a long, cramped row in a 375px viewport. See
+            // docs/ux-improvement-plan.md Task 11 for the full investigation.
+            renderIndicator={
+              lists.length > 0
+                ? (props) => (
+                    <SwipableMobileCarouselDots
+                      {...props}
+                      aria-label="Task lists"
+                      density="compact"
+                    />
+                  )
+                : null
+            }
+          >
+            <SwipableMobileCarouselSlide slideKey="index" label="Lists">
+              <ListSidebar lists={lists} starredCount={starredCount} />
+            </SwipableMobileCarouselSlide>
 
-          <SwipableMobileCarouselSlide slideKey={STARRED_LIST_ID} label="Starred">
-            {starredState && starredState.status !== 'loading' ? (
-              <TasksPane
-                list={{ id: STARRED_LIST_ID, title: 'Starred', color: null, openCount: 0 }}
-                lists={lists}
-                initialTasks={starredState.tasks}
-                showCompleted={false}
-                listId={STARRED_LIST_ID}
-                selectedTaskId={displayDetailTask?.id ?? null}
-                onTaskFieldPatch={(taskId, patch) => patchTask(STARRED_LIST_ID, taskId, patch)}
-                virtualList="starred"
-              />
-            ) : (
-              <SlideHeaderSkeleton title="Starred" color={null} starred />
-            )}
-          </SwipableMobileCarouselSlide>
+            <SwipableMobileCarouselSlide slideKey={STARRED_LIST_ID} label="Starred">
+              {starredState && starredState.status !== 'loading' ? (
+                <TasksPane
+                  list={{ id: STARRED_LIST_ID, title: 'Starred', color: null, openCount: 0 }}
+                  lists={lists}
+                  initialTasks={starredState.tasks}
+                  showCompleted={false}
+                  listId={STARRED_LIST_ID}
+                  selectedTaskId={displayDetailTask?.id ?? null}
+                  onTaskFieldPatch={(taskId, patch) => patchTask(STARRED_LIST_ID, taskId, patch)}
+                  virtualList="starred"
+                />
+              ) : (
+                <SlideHeaderSkeleton title="Starred" color={null} starred />
+              )}
+            </SwipableMobileCarouselSlide>
 
-          {lists.map((list) => {
-            const state = listState[list.id];
-            return (
-              <SwipableMobileCarouselSlide key={list.id} slideKey={list.id} label={list.title}>
-                {state && state.status !== 'loading' ? (
-                  <TasksPane
-                    list={list}
-                    lists={lists}
-                    initialTasks={state.tasks}
-                    showCompleted={state.showCompleted}
-                    listId={list.id}
-                    selectedTaskId={displayDetailTask?.id ?? null}
-                    onTaskFieldPatch={(taskId, patch) => patchTask(list.id, taskId, patch)}
-                    onTaskAdded={(task) => addTask(list.id, task)}
-                  />
-                ) : (
-                  <SlideHeaderSkeleton title={list.title} color={list.color} starred={false} />
-                )}
-              </SwipableMobileCarouselSlide>
-            );
-          })}
-        </SwipableMobileCarousel>
+            {lists.map((list) => {
+              const state = listState[list.id];
+              return (
+                <SwipableMobileCarouselSlide key={list.id} slideKey={list.id} label={list.title}>
+                  {state && state.status !== 'loading' ? (
+                    <TasksPane
+                      list={list}
+                      lists={lists}
+                      initialTasks={state.tasks}
+                      showCompleted={state.showCompleted}
+                      listId={list.id}
+                      selectedTaskId={displayDetailTask?.id ?? null}
+                      onTaskFieldPatch={(taskId, patch) => patchTask(list.id, taskId, patch)}
+                      onTaskAdded={(task) => addTask(list.id, task)}
+                    />
+                  ) : (
+                    <SlideHeaderSkeleton title={list.title} color={list.color} starred={false} />
+                  )}
+                </SwipableMobileCarouselSlide>
+              );
+            })}
+          </SwipableMobileCarousel>
+        )}
       </div>
 
       {/* Self-rendered mobile footer (manifest shellConfig.mobileFooter:

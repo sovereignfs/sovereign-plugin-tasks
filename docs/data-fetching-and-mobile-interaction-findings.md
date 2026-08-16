@@ -232,23 +232,27 @@ No changes to `ListSidebar`, `page.tsx`, `starred/page.tsx`, or routing were
 needed.
 
 **Fallback routes, handled deliberately differently from mobile's own
-carousel:** `DesktopTasksShell`'s `activeListIdForPathname` returns `null`
+carousel (at the time desktop adoption shipped — see the correction
+below):** `DesktopTasksShell`'s `activeListIdForPathname` returns `null`
 for any pathname that isn't an exact `/tasks/<realListId>` or
 `/tasks/starred` — bare `/tasks`, `/tasks/search`, and anything else. In
 that case `children` (page.tsx's/search/page.tsx's real server-rendered
 output) is rendered directly, exactly as it was before this change. This
 was a deliberate divergence from mobile's own `indexForPathname`, which
 prefix-matches and falls back to "show the first list" for _any_
-unrecognized segment — harmless for mobile today only because the carousel
-has no other way to render `/tasks/search` regardless (a separate,
-pre-existing gap this investigation surfaced but did not fix: navigating to
-`/tasks/search` on mobile currently shows the first list instead of search
-results, since `indexForPathname("/tasks/search", lists)` finds no list
-with id `"search"` and falls through to its own "unrecognized → first list"
-default; this is unrelated to Issue 2 and needs its own investigation).
-Desktop's exact-match `null` fallback avoids replicating that same masked
-gap for `/tasks/search` and bare `/tasks` on desktop, which already worked
-correctly before this change via `{children}` and needed to keep doing so.
+unrecognized segment — at the time this was written, that was harmless for
+mobile only because the carousel had no other way to render
+`/tasks/search` regardless: a separate, pre-existing gap this investigation
+surfaced but did not fix in the same pass (navigating to `/tasks/search` on
+mobile silently showed the first list instead of search results). **Now
+fixed** — see `MobileTasksCarousel.tsx`'s own `isCarouselRoute` (added in a
+follow-up pass, mirroring `DesktopTasksShell`'s `activeListIdForPathname`
+almost exactly): the carousel now also falls back to rendering `children`
+directly for any pathname it doesn't recognize as a real slide, closing the
+gap described above. Desktop's exact-match `null` fallback was never
+affected by that gap — it already worked correctly via `{children}` before
+this change and needed to keep doing so; it's mentioned here only as the
+reference implementation mobile's fix ended up mirroring.
 
 Verified live end-to-end in the browser preview at a real desktop viewport
 (1280×720, confirmed via `window.matchMedia` and `window.innerWidth`, in a

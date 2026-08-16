@@ -467,7 +467,35 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.23.0** (`0.22.0` → `0.23.0` is desktop adoption of
+Current version: **0.23.1** (`0.23.0` → `0.23.1` fixes a gap surfaced (but
+not fixed) by `0.23.0`'s own desktop-adoption work: navigating to
+`/tasks/search` on mobile silently showed the first list's carousel slide
+instead of the real search page. Root cause:
+`MobileTasksCarousel.tsx`'s `indexForPathname` prefix-matches
+`/^\/tasks\/([^/]+)/` and, when the captured segment doesn't match any real
+list id, falls through to "land on the user's first list" — a fallback
+meant for a stale/deleted listId or bare `/tasks`, but which also silently
+caught `"search"`, since that segment never matches a real list id either.
+The URL changed correctly (`router.push('/tasks/search')` from the
+footer's own Search icon) but the carousel had no way to represent "not a
+list" as anything other than falling back to some list, so the visible
+content never changed. Fixed by mirroring `DesktopTasksShell.tsx`'s own
+`activeListIdForPathname` pattern: a new `isCarouselRoute` allowlists bare
+`/tasks`, `/tasks/starred`, and `/tasks/<a current list's id>` as real
+slides; any other pathname now falls back to rendering `children`
+(page.tsx's/search/page.tsx's real server-rendered output) directly inside
+`.carouselArea`, instead of forcing a slide index that doesn't represent
+the actual route. `MobileTasksCarousel` gained a real `children` prop for
+this (previously only received `refreshSignal`, an opaque value never
+rendered); `MobileAwareShell.tsx` now passes `children` through both ways.
+Verified live end-to-end on a real 375×812 mobile viewport in the browser
+preview: tapping the footer's Search icon now correctly shows the real
+"Search tasks" empty state (previously showed the first list); typing a
+query and submitting shows real matching results across lists; tapping
+the footer's Lists icon from the search page correctly navigates back to
+the carousel; normal list navigation and checkbox mutation continued
+working with no regressions and no console errors throughout. `0.22.0` →
+`0.23.0` is desktop adoption of
 Issue 2's client-side cache — the follow-up flagged as deliberately
 deferred in `0.22.0`'s own entry below, now shipped. Extracted the entire
 cache engine (`listState`, `loadList`, `patchTask`, `addTask`, the

@@ -43,13 +43,16 @@ interface Props {
  * based on viewport in JS, since CSS media queries can't express "mount an
  * entirely different set of components."
  *
- * On mobile, `children` (page.tsx's server-rendered output for the current
- * route) is deliberately not rendered — MobileTasksCarousel manages its own
- * client-side data for every list so swiping between them is instant. It is
- * still passed through as `refreshSignal`: React re-invokes this component
- * with a new `children` reference on every server refresh (e.g. any
- * router.refresh() call inside TasksPane/TaskDetailPane/etc.), which the
- * carousel uses purely as a signal to re-fetch its active slide — see
+ * On mobile, `children` (page.tsx's/search/page.tsx's server-rendered
+ * output for the current route) is rendered directly only as a fallback,
+ * for a route MobileTasksCarousel doesn't recognize as a real slide
+ * (currently just `/tasks/search` — see its own `isCarouselRoute`). Every
+ * list/Starred/index route instead renders from the carousel's own
+ * client-side data, so swiping between them is instant; `children` is
+ * still passed through as `refreshSignal` even then: React re-invokes this
+ * component with a new `children` reference on every server refresh (e.g.
+ * any router.refresh() call inside TasksPane/TaskDetailPane/etc.), which
+ * the carousel uses purely as a signal to re-fetch its active slide — see
  * MobileTasksCarousel's own doc comment.
  */
 export default function MobileAwareShell({
@@ -70,7 +73,9 @@ export default function MobileAwareShell({
           footerApps={footerApps}
           launcherIconUrl={launcherIconUrl}
           refreshSignal={children}
-        />
+        >
+          {children}
+        </MobileTasksCarousel>
       </div>
     );
   }
