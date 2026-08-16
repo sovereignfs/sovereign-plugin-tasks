@@ -24,7 +24,7 @@ in place as work progresses; do not delete resolved items, mark them
 | 3   | Checkbox/star tap has perceived latency despite existing optimistic updates | Rendering / gesture handling | No                                   | planned                                  |
 | 4   | Long-press-to-bulk-select competes with carousel swipe on mobile            | Gesture arbitration          | No                                   | planned (known, previously investigated) |
 | 5   | iPad-sized viewports get the desktop layout, not the mobile one             | Breakpoint / config          | No                                   | planned                                  |
-| 6   | Possible task-list reordering / count inconsistency                         | Correctness (unconfirmed)    | Unknown                              | needs reproduction                       |
+| 6   | Possible task-list reordering / count inconsistency                         | Correctness (unconfirmed)    | No                                   | likely not a bug                         |
 | 7   | Vertical overscroll on list scroll containers is not contained              | CSS / scroll containment     | No                                   | shipped                                  |
 
 ---
@@ -237,29 +237,36 @@ justify keeping it there?), not a pure bug fix.
 ### Issue 6 — Possible task-list reordering / count inconsistency
 
 **Category:** Correctness (unconfirmed)
-**Status:** needs reproduction — do not act on this without first
-reproducing it live
+**Status:** likely not a bug — see investigation below; low priority unless
+re-reported with a cleaner repro
 
 **Symptom:** A task's position within a list, and the list's own displayed
 task count, may change unexpectedly during a session without an explicit
 reorder action.
 
-**Root cause:** Unknown — this item is flagged from an ambiguous
-observation, not a confirmed bug. Do not assume a specific mechanism (e.g.
-optimistic-update reconciliation, sort-order drift, a stale cache entry
-being merged incorrectly) without first reproducing it under controlled
-conditions (a fresh list, a known task order, a single deliberate mutation,
-then checking whether order/count changes in a way that isn't explained by
-that mutation). If reproduced, the likely places to look first are the
-optimistic-patch paths (`patchTask`/`addTask` in
-`MobileTasksCarousel.tsx`, `onFieldPatch` plumbing in `TaskItem.tsx`) and
-whatever determines render order for a list's tasks (check for a client-side
-sort/filter derived from state that could race with a server refetch
-landing mid-session).
+**Root cause:** Unknown — this item was originally flagged from an
+ambiguous observation, not a confirmed bug. Investigated live under
+controlled conditions: `createTask` (`app/_lib/actions.ts`) deliberately
+**prepends** a new task — `// New tasks go to the top of their sibling
+group — prepend, don't append`, implemented via `sortOrder: minOrder - 1`.
+Confirmed live: adding a task to a 17-task list put it at position 1
+(above every existing task) and the count incremented to 18, exactly the
+shape of the original observation (a task "appearing" near the top,
+count increasing by one). This is very likely the full explanation — what
+originally looked like an _existing_ task moving position was almost
+certainly a _new_ task being created (by design, at the top), quite
+possibly a double-submit of the same title (e.g. a slow round trip making
+a first Enter/tap look like it didn't register, prompting a second one)
+producing what looks like the same task appearing in two places at once.
 
-**Relation to data-fetching proposal:** Unknown until reproduced — if it
-turns out to be a stale-cache-merge issue, a data-fetching revamp could be
-directly relevant; if it's an optimistic-update ordering bug, it is not.
+**Relation to data-fetching proposal:** Not addressed by it — this was
+never a data-fetching issue; the create-order behavior is deliberate and
+unrelated to caching.
+
+**Do not "fix" this without a fresh, cleaner repro** — the prepend behavior
+itself is intentional, documented, working-as-designed. Only reopen this
+if someone reproduces an _existing_ task's position or a list's count
+changing with **no** add/mutation action in between.
 
 ---
 
