@@ -19,7 +19,7 @@ in place as work progresses; do not delete resolved items, mark them
 
 | #   | Issue                                                                       | Category                     | Data-fetching proposal addresses it? | Status                                   |
 | --- | --------------------------------------------------------------------------- | ---------------------------- | ------------------------------------ | ---------------------------------------- |
-| 1   | Subtask list refetches on every expand/collapse                             | Data fetching                | Yes — directly                       | planned                                  |
+| 1   | Subtask list refetches on every expand/collapse                             | Data fetching                | Yes — directly                       | shipped                                  |
 | 2   | Fast swiping through not-yet-visited lists shows a spinner per list         | Data fetching                | Yes — partially (prefetch scope)     | planned                                  |
 | 3   | Checkbox/star tap has perceived latency despite existing optimistic updates | Rendering / gesture handling | No                                   | planned                                  |
 | 4   | Long-press-to-bulk-select competes with carousel swipe on mobile            | Gesture arbitration          | No                                   | planned (known, previously investigated) |
@@ -32,7 +32,7 @@ in place as work progresses; do not delete resolved items, mark them
 ### Issue 1 — Subtask list refetches on every expand/collapse cycle
 
 **Category:** Data fetching / caching
-**Status:** planned
+**Status:** shipped
 
 **Symptom:** Expanding a task's subtasks shows a loading delay every time,
 including when that same task's subtasks were already fetched moments
@@ -64,6 +64,28 @@ rules).
 self-contained slice of Part 2's broader proposal. Recommended as the first
 thing to implement — it has no open design questions blocking it (unlike
 Issues 2's broader scope questions, see Part 2).
+
+**Implementation notes:** Shipped as a module-level `Map<parentId, {
+subtasks, signature }>` cache inside `SubtaskList.tsx` itself (not lifted
+into `TasksPane`/`MobileTasksCarousel` as the original proposed fix's first
+option suggested — the dedicated-cache-module option was simpler and
+required no prop-plumbing changes to either of `SubtaskList`'s two call
+sites, inline `TaskItem` and the detail pane). `signature` is derived from
+exactly the same four props already used as reload triggers
+(`listId`/`parentCompletedAt`/`parentSubtaskCount`/`parentSubtaskDoneCount`),
+so every case that already forced a reload before this cache existed still
+does; only a signature-preserving mount/unmount (a plain expand/collapse
+toggle) now serves from cache instead of refetching. A local mutation
+(toggle/add/delete) updates the cache alongside its own authoritative
+reload, so a later remount reflects it without a second fetch. No automated
+regression test — this plugin has no component-testing infrastructure
+(`@testing-library/react` isn't a dependency anywhere in this repo; only
+lib-level `.test.ts` files exist under `app/_lib/__tests__/`), and adding
+that capability was judged a larger, separate change than this fix
+warranted. Verified live instead: expand → collapse → re-expand produced
+zero new network requests in the browser's own network log; toggling a
+subtask then collapsing/re-expanding showed the updated state with no extra
+fetch either.
 
 ---
 

@@ -11,6 +11,36 @@ interface Subtask {
   completedAt: number | null;
 }
 
+/**
+ * Module-level cache, shared by every `SubtaskList` instance for the
+ * lifetime of the page — keyed by parent task id, never evicted, same
+ * "cache forever, no TTL" convention `MobileTasksCarousel`'s own per-list
+ * `listState` cache already uses. `SubtaskList` is conditionally mounted by
+ * its callers (`{expanded && <SubtaskList ... />}` in `TaskItem`), so every
+ * collapse used to discard all fetched state and every re-expand repeated a
+ * full `getSubtasks` round trip even when nothing had changed — this is
+ * what makes that state survive across mount/unmount.
+ *
+ * `signature` reuses this component's own existing reload-trigger props
+ * (`listId`/`parentCompletedAt`/`parentSubtaskCount`/`parentSubtaskDoneCount`
+ * — see their doc comments below for why each one signals "subtasks may
+ * have changed elsewhere") as the cache-staleness check: a cached entry is
+ * only served when today's signature matches the signature recorded at
+ * cache-write time. Anything that already forced a reload before this cache
+ * existed still forces one now — this only removes the *redundant* reload
+ * on a plain expand/collapse toggle where nothing in the signature moved.
+ */
+const subtaskCache = new Map<string, { subtasks: Subtask[]; signature: string }>();
+
+function cacheSignature(
+  listId: string,
+  parentCompletedAt: number | null,
+  parentSubtaskCount: number | undefined,
+  parentSubtaskDoneCount: number | undefined,
+): string {
+  return `${listId}:${parentCompletedAt}:${parentSubtaskCount}:${parentSubtaskDoneCount}`;
+}
+
 interface Props {
   parentId: string;
   listId: string;
@@ -54,7 +84,18 @@ export default function SubtaskList({
   showLabel = false,
   boxedRows = false,
 }: Props) {
-  const [subtasks, setSubtasks] = useState<Subtask[]>([]);
+  const currentSignature = cacheSignature(
+    listId,
+    parentCompletedAt,
+    parentSubtaskCount,
+    parentSubtaskDoneCount,
+  );
+  // Lazy initializer so a cache hit renders the real rows on the very first
+  // frame instead of a brief empty flash before the effect below runs.
+  const [subtasks, setSubtasks] = useState<Subtask[]>(() => {
+    const cached = subtaskCache.get(parentId);
+    return cached && cached.signature === currentSignature ? cached.subtasks : [];
+  });
   const [newTitle, setNewTitle] = useState('');
   const [adding, setAdding] = useState(false);
   const addInputRef = useRef<HTMLInputElement>(null);
@@ -63,17 +104,33 @@ export default function SubtaskList({
     if (adding) addInputRef.current?.focus();
   }, [adding]);
 
-  async function load() {
-    const rows = await getSubtasks(parentId, listId);
-    setSubtasks(rows as Subtask[]);
+  async function load(signature: string) {
+    const rows = (await getSubtasks(parentId, listId)) as Subtask[];
+    setSubtasks(rows);
+    subtaskCache.set(parentId, { subtasks: rows, signature });
   }
 
-  // Reload on mount, whenever the parent's completion changes (cascade), or
-  // whenever the parent row's own subtask counts change (a mutation via a
-  // sibling SubtaskList instance elsewhere on the page — see the prop docs
-  // above).
+  // Reload whenever the parent's completion changes (cascade), or whenever
+  // the parent row's own subtask counts change (a mutation via a sibling
+  // SubtaskList instance elsewhere on the page — see the prop docs above) —
+  // both already forced a reload before the cache existed, and still do:
+  // either one changes currentSignature, which a cached entry from before
+  // that change can no longer match. Only a signature-preserving
+  // mount/unmount (a plain expand/collapse toggle) now serves from cache
+  // instead of refetching.
   useEffect(() => {
-    load();
+    const signature = cacheSignature(
+      listId,
+      parentCompletedAt,
+      parentSubtaskCount,
+      parentSubtaskDoneCount,
+    );
+    const cached = subtaskCache.get(parentId);
+    if (cached && cached.signature === signature) {
+      setSubtasks(cached.subtasks);
+      return;
+    }
+    load(signature);
   }, [parentId, listId, parentCompletedAt, parentSubtaskCount, parentSubtaskDoneCount]);
 
   const visible = showCompleted ? subtasks : subtasks.filter((s) => s.completedAt === null);
@@ -91,13 +148,13 @@ export default function SubtaskList({
       ),
     );
     await toggleComplete(id, listId, checked);
-    await load();
+    await load(currentSignature);
     onMutated();
   }
 
   async function handleDelete(id: string) {
     await deleteTask(id, listId);
-    await load();
+    await load(currentSignature);
     onMutated();
   }
 
@@ -107,7 +164,7 @@ export default function SubtaskList({
     await createTask(listId, trimmed, parentId);
     setNewTitle('');
     setAdding(false);
-    await load();
+    await load(currentSignature);
     onMutated();
   }
 
@@ -125,7 +182,10 @@ export default function SubtaskList({
         </span>
       )}
       {visible.map((s) => (
-        <div key={s.id} className={[styles.row, boxedRows ? styles.rowBoxed : ''].filter(Boolean).join(' ')}>
+        <div
+          key={s.id}
+          className={[styles.row, boxedRows ? styles.rowBoxed : ''].filter(Boolean).join(' ')}
+        >
           <Checkbox
             checked={s.completedAt !== null}
             onChange={(checked) => handleToggle(s.id, checked)}
