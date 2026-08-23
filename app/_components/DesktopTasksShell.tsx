@@ -1,16 +1,24 @@
 'use client';
 
-import { Spinner } from '@sovereignfs/ui';
+import { Spinner, ThreeColumnLayout, useIsMobile as useNarrowViewport } from '@sovereignfs/ui';
 import { usePathname, useSearchParams } from 'next/navigation';
 import type { ReactNode } from 'react';
 import ListSidebar from '../ListSidebar';
 import TasksPane from '../[listId]/TasksPane';
-import { useTasksData } from '../_lib/useTasksData';
+import { NO_NEIGHBOR_LIST_IDS, useTasksData } from '../_lib/useTasksData';
 import type { ListRow } from '../_lib/types';
 import { STARRED_LIST_ID } from '../_lib/virtualLists';
 import TaskDetailPane, { type DetailTask } from './TaskDetailPane';
 import layoutStyles from '../layout.module.css';
-import pageStyles from '../[listId]/page.module.css';
+
+// Below three-column width the detail pane has nowhere to go — collapse it
+// (sidebar + list only) rather than squeezing all three into too little
+// space. Deliberately narrower than the mobile fork's own 768px breakpoint
+// (useIsMobile.ts): this only ever fires in the tablet-width gap where the
+// mobile carousel hasn't taken over yet. ThreeColumnLayout has no responsive
+// behavior of its own (see its own doc comment) — omitting its third child
+// entirely, per its documented API, is this shell's own decision.
+const DETAIL_COLLAPSE_BREAKPOINT_PX = 900;
 
 interface Props {
   lists: ListRow[];
@@ -31,6 +39,10 @@ interface Props {
    *  existed. See activeListIdForPathname's own doc comment for why this is
    *  an *exact* match rather than mobile's looser prefix match. */
   children: ReactNode;
+  /** Forwarded straight through to `useTasksData` — see that hook's own doc
+   *  comment on this same prop and `MobileAwareShell`'s doc comment on where
+   *  it comes from (findings doc Issue 10). */
+  settled: boolean;
 }
 
 /**
@@ -60,19 +72,24 @@ function activeListIdForPathname(pathname: string, lists: ListRow[]): string | n
  *  continuous through; a centered spinner in the list column is enough to
  *  avoid a blank flash while a never-before-cached list's first fetch is in
  *  flight (persisted-cache hydration already covers the common case of a
- *  previously-visited list). */
+ *  previously-visited list). No className of its own — this is
+ *  ThreeColumnLayout's main slot, whose width/background the layout
+ *  primitive already provides. */
 function ListColumnLoading() {
   return (
-    <div
-      className={pageStyles.listCol}
-      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-    >
+    <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <Spinner size="md" label="Loading…" />
     </div>
   );
 }
 
-export default function DesktopTasksShell({ lists, starredCount, refreshSignal, children }: Props) {
+export default function DesktopTasksShell({
+  lists,
+  starredCount,
+  refreshSignal,
+  children,
+  settled,
+}: Props) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const activeListId = activeListIdForPathname(pathname, lists);
@@ -80,11 +97,17 @@ export default function DesktopTasksShell({ lists, starredCount, refreshSignal, 
   const taskIdParam = searchParams.get('task');
 
   // Cache/staleness/persistence engine — shared with MobileTasksCarousel,
-  // see _lib/useTasksData.ts's own doc comment.
+  // see _lib/useTasksData.ts's own doc comment. No neighbor prefetch on
+  // desktop (findings doc Issue 8) — there's no swipe gesture here to
+  // outrun a narrow prefetch window the way mobile's carousel has; a list
+  // switch is a plain click that this cache already serves instantly once
+  // cached, background-warmed the same as any other not-yet-visited list.
   const { listState, patchTask, addTask, detailTask, detailLoading, patchDetailTask } =
     useTasksData({
       lists,
       activeListId,
+      neighborListIds: NO_NEIGHBOR_LIST_IDS,
+      settled,
       taskIdParam,
       refreshSignal,
     });
@@ -114,48 +137,53 @@ export default function DesktopTasksShell({ lists, starredCount, refreshSignal, 
 
   const activeState = activeListId ? listState[activeListId] : undefined;
   const activeRealList = activeListId ? (lists.find((l) => l.id === activeListId) ?? null) : null;
+  const isNarrowDesktop = useNarrowViewport(DETAIL_COLLAPSE_BREAKPOINT_PX);
 
   return (
-    <div className={layoutStyles.shell} data-plugin-fullbleed>
-      <aside className={layoutStyles.sidebar}>
-        <ListSidebar lists={lists} starredCount={starredCount} />
-      </aside>
-      {activeListId ? (
-        <div className={pageStyles.inner}>
-          {activeState && activeState.status !== 'loading' ? (
-            <div className={pageStyles.listCol}>
-              <TasksPane
-                list={
-                  activeIsStarred
-                    ? {
-                        id: STARRED_LIST_ID,
-                        title: 'Starred',
-                        color: null,
-                        // Unlike MobileTasksCarousel's own hardcoded 0 for this
-                        // same synthetic ListRow (the mobile carousel's
-                        // slide-index dots don't read it, so that was never
-                        // noticed), desktop's own pre-existing
-                        // starred/page.tsx computed this for real — matching
-                        // that rather than the mobile shortcut, since nothing
-                        // stops this shell from doing so too.
-                        openCount: activeState.tasks.filter((t) => t.completedAt === null).length,
-                      }
-                    : (activeRealList ?? { id: activeListId, title: '', color: null, openCount: 0 })
-                }
-                lists={lists}
-                initialTasks={activeState.tasks}
-                showCompleted={activeState.showCompleted}
-                listId={activeListId}
-                selectedTaskId={displayDetailTask?.id ?? null}
-                onTaskFieldPatch={(taskId, patch) => patchTask(activeListId, taskId, patch)}
-                onTaskAdded={activeIsStarred ? undefined : (task) => addTask(activeListId, task)}
-                virtualList={activeIsStarred ? 'starred' : undefined}
-              />
-            </div>
+    <div className={layoutStyles.desktopFrame} data-plugin-fullbleed>
+      <ThreeColumnLayout sidebarWidth={240} detailWidth={340}>
+        <div className={layoutStyles.sidebarInner}>
+          <ListSidebar lists={lists} starredCount={starredCount} />
+        </div>
+
+        {activeListId ? (
+          activeState && activeState.status !== 'loading' ? (
+            <TasksPane
+              list={
+                activeIsStarred
+                  ? {
+                      id: STARRED_LIST_ID,
+                      title: 'Starred',
+                      color: null,
+                      // Unlike MobileTasksCarousel's own hardcoded 0 for this
+                      // same synthetic ListRow (the mobile carousel's
+                      // slide-index dots don't read it, so that was never
+                      // noticed), desktop's own pre-existing
+                      // starred/page.tsx computed this for real — matching
+                      // that rather than the mobile shortcut, since nothing
+                      // stops this shell from doing so too.
+                      openCount: activeState.tasks.filter((t) => t.completedAt === null).length,
+                    }
+                  : (activeRealList ?? { id: activeListId, title: '', color: null, openCount: 0 })
+              }
+              lists={lists}
+              initialTasks={activeState.tasks}
+              showCompleted={activeState.showCompleted}
+              listId={activeListId}
+              selectedTaskId={displayDetailTask?.id ?? null}
+              onTaskFieldPatch={(taskId, patch) => patchTask(activeListId, taskId, patch)}
+              onTaskAdded={activeIsStarred ? undefined : (task) => addTask(activeListId, task)}
+              virtualList={activeIsStarred ? 'starred' : undefined}
+            />
           ) : (
             <ListColumnLoading />
-          )}
-          <aside className={pageStyles.detailCol}>
+          )
+        ) : (
+          children
+        )}
+
+        {activeListId && !isNarrowDesktop && (
+          <div className={layoutStyles.detailInner}>
             {/* A task's summary fields (used for optimisticDetailTask) come
                 from this same list's already-cached rows — so this loading
                 state is only ever reachable when the tapped task isn't in
@@ -180,11 +208,9 @@ export default function DesktopTasksShell({ lists, starredCount, refreshSignal, 
                 onFieldPatch={patchDetailTask}
               />
             )}
-          </aside>
-        </div>
-      ) : (
-        <main className={layoutStyles.content}>{children}</main>
-      )}
+          </div>
+        )}
+      </ThreeColumnLayout>
     </div>
   );
 }

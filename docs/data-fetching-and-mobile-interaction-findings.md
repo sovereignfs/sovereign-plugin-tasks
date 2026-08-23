@@ -26,6 +26,9 @@ in place as work progresses; do not delete resolved items, mark them
 | 5   | iPad-sized viewports get the desktop layout, not the mobile one             | Breakpoint / config          | No                                   | shipped                   |
 | 6   | Possible task-list reordering / count inconsistency                         | Correctness (unconfirmed)    | No                                   | likely not a bug          |
 | 7   | Vertical overscroll on list scroll containers is not contained              | CSS / scroll containment     | No                                   | shipped                   |
+| 8   | Every list's tasks are eagerly fetched on every page load, not just the active one — reported as mobile slowness | Data fetching | Yes — directly | shipped |
+| 9   | Persisted (IndexedDB) cache never skips the network refetch, even when fresh | Data fetching | Yes — directly | shipped |
+| 10  | Mobile briefly double-mounts two independent data-fetch instances (`DesktopTasksShell` + `MobileTasksCarousel`) on every cold load | Data fetching / SSR-hydration mismatch | Yes — directly | shipped |
 
 ---
 
@@ -267,6 +270,16 @@ hydration, same as mobile); and both `/tasks/search` and bare `/tasks`
 continued rendering their real, correct content (search results/empty
 state, "Select a list" empty state respectively) via the `children`
 fallback, unaffected by the cache-driven list/Starred routes.
+
+**Follow-up (planned, 2026-08-23) — the "revisit if a real account with
+dozens-plus of lists reports this as a problem" trigger has been hit:**
+reported directly as general mobile slowness, not a specific repro. See
+Issue 8 below for the full investigation and proposed fix — kept as its own
+issue rather than folded in here, since it's a distinct, newly-found root
+cause (eager-fetch *scope*) on top of this issue's own already-shipped
+prefetch-window fix, and pairs with a second, previously-undocumented gap
+(Issue 9: persistence never actually skips the network fetch it was meant
+to make unnecessary).
 
 ---
 
@@ -558,9 +571,450 @@ real-device confirmation is still outstanding.
 
 ---
 
+### Issue 8 — Every list's tasks are eagerly fetched on every page load, not just the active one
+
+**Category:** Data fetching / caching
+**Status:** planned
+
+**Symptom:** General reports that the mobile app feels slow — not a specific
+timed repro. Investigated by reproducing the underlying request pattern live
+rather than chasing a vague "slow" report directly.
+
+**Root cause:** `app/_lib/useTasksData.ts`'s mount effect (the shared cache
+engine behind both `MobileTasksCarousel.tsx` and `DesktopTasksShell.tsx`)
+fetches the active list first, then loops over **every other list the user
+has** and fires `loadList` for each one not yet cached — by design, this is
+Issue 2's own "background-warm everything" decision, not new code. Verified
+live against this environment's dev account (10 sample lists + the virtual
+Starred list = 11 cache entries): a single navigation to `/tasks/<listId>`
+fires **~20–23 concurrent POST requests** (`getTasks` + `getOrCreatePrefs`
+per real list, one `getStarredTasks` call), confirmed both in the browser's
+own network log and in the runtime dev server's own per-request timing log.
+Each individual request is fast against this local dev stack (25–75ms), but
+they all fire concurrently, every time — a real mobile network's higher
+round-trip time, plus a browser's own cap on concurrent connections per
+origin, would serialize/queue a burst this size rather than complete it in
+parallel the way localhost does, making this a highly plausible direct cause
+of perceived mobile slowness. `MobileTasksCarousel.tsx` compounds this
+further by rendering a `SwipableMobileCarouselSlide` for every list up front
+too (though `@sovereignfs/ui`'s carousel primitive only keeps `activeIndex ±
+prefetchDistance` actually mounted in the DOM — the data-fetch burst above is
+the real bottleneck, not DOM/render cost).
+
+This is exactly the tradeoff Issue 2's own "Decision" section already named
+and flagged for revisiting: *"an accepted tradeoff given this plugin's
+realistic list counts (a personal task manager, not hundreds of lists);
+revisit if a real account with dozens-plus of lists reports this as a
+problem."* Eleven lists is not "dozens," but it's the same shape of problem
+arriving sooner than that framing anticipated, and it's now been reported.
+
+**Proposed fix:** Narrow what fetches *eagerly* at mount, without giving up
+the "no spinner on a fast swipe past several lists" win Issue 2 was solving
+for. Options considered:
+
+- **(a) Priority-order only (reject as insufficient alone):** restore the
+  original mobile-only "fetch `[active-1, active, active+1]` first" ordering
+  that existed before the hook was generalized for desktop (see the hook's
+  own doc comment on this simplification). Ordering alone doesn't reduce
+  total request *count* — the full background-warm-everything pass still
+  fires it all, just slightly later. Doesn't address the actual burst size.
+- **(b) Narrow eager-fetch radius (recommended):** at mount, eagerly fetch
+  only the active list plus its immediate carousel neighbors (`±1`, matching
+  the original pre-Issue-2 mobile design). Every list outside that radius is
+  fetched lazily — the first time it *becomes* the active slide (or enters
+  the radius), not preemptively for the whole account regardless of whether
+  it's ever visited this session. This is a real behavior change from
+  Issue 2's decision, not a tuning knob: a fast multi-list swipe can once
+  again outrun the ±1 window and show a spinner for a never-yet-fetched list,
+  the exact regression Issue 2 was originally fixing. Worth accepting given
+  the alternative (a large, unconditional burst on every load) is the
+  reported problem; `SlideHeaderSkeleton` already keeps the list's title on
+  screen during that gap, so the fallback is a per-list spinner, not a blank
+  screen.
+- **(c) Cap background-warm concurrency (recommended, additive to (b)):**
+  whatever the eager set (b) leaves for lazy background-warming, don't fire
+  it all at once — batch it through a small concurrency cap (e.g. 2–3
+  in-flight `loadList` calls at a time, queueing the rest) so it never
+  competes with the initial interactive paint or with a real gesture's own
+  fetch, regardless of how many lists an account eventually accumulates.
+  This is what actually bounds the worst case as list count grows, rather
+  than merely delaying when the burst happens.
+
+**Decision:** (b) + (c) together — narrow the eager radius back to `±1`, and
+cap whatever background-warming remains to a small concurrency limit. (a) is
+not a solution on its own and isn't planned as a separate step.
+
+**Open questions to resolve before implementing (per this doc's own
+convention):**
+
+1. Prefetch radius — is `±1` (matching the original mobile design) still
+   right, or should it stay wider now that desktop shares this hook (desktop
+   has no swipe gesture to outrun, so a narrower radius costs it nothing)?
+2. Concurrency cap size for the background-warm queue — starting proposal is
+   2–3 concurrent `loadList` calls; needs live verification that this
+   actually keeps the initial paint responsive without making "eventually
+   every list is cached" take unreasonably long on a large account.
+3. Whether the background-warm queue should pause entirely while any
+   foreground (active-list or neighbor) fetch is in flight, or just share the
+   same cap — simpler to implement as one shared cap, but worth confirming
+   that doesn't starve the foreground fetch behind an already-started batch.
+
+**Decisions:**
+
+1. Kept `±1` for mobile (unchanged from the original design) and used
+   **no** neighbor prefetch at all for desktop (`NO_NEIGHBOR_LIST_IDS`,
+   `app/_lib/useTasksData.ts`) — desktop has no swipe gesture to outrun, and
+   a list switch is a plain click the cache already serves instantly once
+   background-warmed, so widening its eager set would only add requests with
+   no corresponding UX win.
+2. `BACKGROUND_WARM_CONCURRENCY = 2` — picked the conservative end of the
+   proposed 2–3 range as a starting point; verified live (see below) that it
+   keeps initial paint responsive. Not re-tuned against a large-account case
+   in this pass — revisit if 2 proves too slow to warm a big list count in
+   practice.
+3. **Shared cap, foreground never queued or delayed** — `activeListId` and
+   `neighborListIds` always call `loadList` directly and immediately in the
+   mount effect, same as before this issue; only the "everything else" pool
+   goes through `backgroundQueueRef`/`drainBackgroundQueue`'s own
+   independent concurrency counter. The foreground fetch and the background
+   queue's cap don't share a counter, so a full background queue can never
+   starve a foreground fetch — simpler to reason about than a single merged
+   cap would have been, at the cost of the true worst-case concurrent
+   request count being `(1 + neighbors) + BACKGROUND_WARM_CONCURRENCY`
+   rather than a single hard ceiling. Acceptable given the eager set is
+   already small (at most 3 ids: active + 2 neighbors).
+
+**Implementation notes:** `app/_lib/useTasksData.ts` gains a new required
+`neighborListIds: string[]` argument (both call sites updated — see below),
+a `BACKGROUND_WARM_CONCURRENCY` constant, and a `drainBackgroundQueue`
+callback: a small `while` loop pulling ids off `backgroundQueueRef` while
+`backgroundInFlightRef.current < BACKGROUND_WARM_CONCURRENCY`, calling
+`loadList` for each and recursing on completion (success or error — the
+`.finally` always decrements the counter and re-drains, so the queue can't
+wedge open). The main mount effect now fetches `activeListId` and each id in
+`neighborListIds` directly (unchanged shape from before), then pushes every
+other not-yet-cached, not-already-queued, not-already-in-flight id onto
+`backgroundQueueRef` instead of calling `loadList` on it directly, and calls
+`drainBackgroundQueue()` once at the end.
+
+`MobileTasksCarousel.tsx` gains `listIdForSlideIndex` (maps a carousel slide
+index to its `useTasksData` cache key — real list id, `STARRED_LIST_ID`, or
+`null` for the non-list Lists-index slide at index 0) and computes
+`neighborListIds` via `useMemo(() => [listIdForSlideIndex(activeIndex - 1,
+lists), listIdForSlideIndex(activeIndex + 1, lists)].filter(...), [activeIndex,
+lists])` — memoized so its identity stays stable across renders that don't
+actually change the active slide, avoiding a wasted effect re-run (the
+`neighborListIds` array is one of `useTasksData`'s mount-effect
+dependencies). `DesktopTasksShell.tsx` passes the new
+`NO_NEIGHBOR_LIST_IDS` export (a genuine module-level empty array constant,
+not an inline `[]` — an inline literal would get a new identity every
+render and cause the same wasted-effect-rerun problem `useMemo` avoids on
+the mobile side).
+
+Verified live in the browser preview, at both mobile (375×812) and desktop
+(1280×800) viewports, against a genuinely cold cache each time (cleared the
+plugin's persisted-cache IndexedDB database, `sovereign-offline`, via
+`indexedDB.deleteDatabase` before each test — necessary because Issue 9's
+own fix, shipped moments earlier in the same pass, makes a *warm* cache
+correctly skip the network fetch outright, which would have made this
+issue's eager/background split unobservable):
+
+- **The eager/background split itself is structurally correct** — confirmed
+  by code review and by the fact that only `activeListId` and
+  `neighborListIds` ever appear as immediate `loadList` calls in the mount
+  effect; every other id is only ever added to `backgroundQueueRef`.
+- **The concurrency cap genuinely staggers requests, not just delays when
+  they start** — verified with temporary instrumentation (`console.log` at
+  each background admission/completion, tagged with `performance.now()` and
+  the live in-flight count), since the network-request-log tool available in
+  this environment doesn't expose real per-request wall-clock start times
+  precise enough to distinguish "throttled to 2 at a time" from "all fired
+  at once" on a local dev stack where every individual request is already
+  fast (25–75ms). The instrumented run showed the in-flight counter never
+  exceeding 2 within a single hook instance, with real ~30–150ms gaps
+  between successive admissions matching individual request latency —
+  confirming genuine sequencing, not just coincidental ordering. Removed
+  before committing — this was verification-only, not shipped code.
+- **A real, previously-undocumented interaction was found during this
+  verification — see Issue 10 below, shipped in the same pass.** On a mobile
+  viewport specifically, the instrumented run showed *two* independent sets
+  of admission/completion logs interleaved, for the same ids, at the same
+  real timestamps — i.e. two separate `useTasksData` hook instances running
+  their own independently-capped queues concurrently for a brief window,
+  not one. Traced to `MobileAwareShell.tsx`: `useIsMobile()` is SSR-safe via
+  a `false` (desktop) default until the client mounts and reads the real
+  viewport, so on every mobile cold load `DesktopTasksShell` briefly renders
+  first (starting its own `useTasksData` instance and background queue),
+  then unmounts in favor of `MobileTasksCarousel` once the real viewport is
+  known (starting a second, independent instance) — this is pre-existing
+  behavior, not introduced by this issue's fix, and was likely already
+  happening under Issue 2's original "fetch everything at mount" design too,
+  just masked by that design's much larger burst size making the doubling
+  harder to notice. Its practical effect on this issue's own fix: the true
+  worst-case concurrent connections on a mobile cold load is transiently
+  closer to double the single-instance cap (up to ~4–6, briefly, until the
+  transient `DesktopTasksShell` instance unmounts) rather than a clean,
+  single ceiling — still a real, verified reduction from the pre-Issue-8
+  baseline (a single instance unconditionally firing ~20+ requests at once),
+  just not quite as tight as "always ≤ 3 concurrent" would suggest in
+  isolation, at the time this was written. **Now closed by Issue 10** (same
+  pass, see that issue's own implementation notes): the transient
+  `DesktopTasksShell` instance's background-warm queue no longer starts at
+  all, so the true worst-case at mount is the eager set only
+  (`activeListId` + up to 2 neighbors on mobile), not doubled.
+- Confirmed no regression in correctness: task data for every list rendered
+  correctly (verified via screenshot at both viewports, matching task counts
+  and titles against what the seeded test data actually contains) and no
+  console errors, at either viewport, before or after clearing the persisted
+  cache.
+
+**Relation to Issue 9 below:** this issue narrows *how many* lists fetch
+eagerly; Issue 9 narrows *how often* even those necessary fetches actually
+hit the network. They compound — implement Issue 9 first (smaller, more
+isolated: one hook, no radius/concurrency design decision) since it reduces
+the burst's frequency immediately with no behavior-change risk, then this
+issue to bound the burst's maximum size.
+
+---
+
+### Issue 9 — Persisted (IndexedDB) cache never skips the network refetch, even when fresh
+
+**Category:** Data fetching / caching
+**Status:** shipped
+
+**Symptom:** No standalone user-facing report — found while investigating
+Issue 8 above. A full page reload, with every list's data already persisted
+in IndexedDB from a previous session (confirmed via `indexedDB.databases()`
+in Issue 2's own original verification), still fires the complete
+~20–23-request network burst described in Issue 8. Persistence currently
+buys a faster *paint* (no loading skeleton) but zero reduction in *request
+volume* — every reload pays the full network cost regardless of how recently
+that same data was fetched.
+
+**Root cause:** `app/_lib/listCache.ts`'s own doc comment on
+`readPersistedList` says this outright: *"never a substitute for the real
+network fetch that always follows it."* `useTasksData.ts`'s `loadList` reads
+the persisted entry (if any) purely to seed what's displayed while loading,
+then unconditionally proceeds to call `getTasks`/`getOrCreatePrefs` (or
+`getStarredTasks`) regardless of how fresh that persisted entry actually is.
+The `fetchedAt`/`STALE_AFTER_MS` staleness mechanism that already exists
+(`listCache.ts`) is only ever consulted for the two revalidate-on-focus
+triggers (becoming active again, tab regaining focus) — never for the
+cold-start/persisted-cache path.
+
+**Proposed fix:** Give a fresh-enough persisted entry a real "skip the
+network round trip" fast path, reusing the same staleness primitive that
+already exists rather than adding a second one: in `loadList`'s
+cold-start-hydration step, if `readPersistedList` returns an entry whose
+`fetchedAt` is within a threshold, mark it `status: 'loaded'` and `return`
+immediately — do not fall through to the network fetch. Only a stale or
+missing persisted entry falls through to today's unconditional fetch. This
+turns persistence from "faster paint, same network cost" into "faster paint
+**and** fewer requests" for the common case of reopening the app shortly
+after last using it.
+
+**Open question to resolve before implementing:** should the cold-start
+freshness threshold reuse `STALE_AFTER_MS` (60s) as-is, or use a separate,
+longer threshold? A same-session revalidate-on-focus case (switching tabs,
+coming back from background) genuinely wants a short window so a same-session
+edit elsewhere shows up quickly — but a cold start (closed the app, reopened
+minutes/hours later) is a different situation, where task lists realistically
+don't change every minute for most users, and a longer threshold (candidate:
+a few minutes) would cut far more reload-triggered bursts with limited added
+staleness risk, since any mutation the user themselves makes after reload
+still goes through the existing optimistic-update + refresh-signal path
+regardless of this threshold. Needs a decision before implementing, not a
+default to guess at silently.
+
+**Decision:** a separate, longer threshold — `COLD_START_STALE_AFTER_MS`
+(`app/_lib/listCache.ts`), set to 5 minutes, kept distinct from
+`STALE_AFTER_MS` (60s, unchanged, still governs revalidate-on-focus). Picked
+5 minutes as a middle ground per the tradeoff above: long enough to skip the
+network fetch for the overwhelmingly common case (reopening the app shortly
+after last using it), short enough that a genuinely stale reopen (hours
+later) still refetches for real, since a cold start beyond this window falls
+straight back through to today's unconditional-fetch behavior — no separate
+code path, same `loadList` function.
+
+**Implementation notes:** `app/_lib/listCache.ts` gains
+`COLD_START_STALE_AFTER_MS` alongside the existing `STALE_AFTER_MS`, with a
+doc comment explaining why the two differ. `useTasksData.ts`'s `loadList`
+now wraps its entire body (including the cold-start hydration step) in one
+`try`/`finally` instead of hydrating outside the `try` — needed so the new
+early `return` after a fresh-enough persisted hit still runs the `finally`
+block's `loadingIdsRef.current.delete(listId)` cleanup; no behavior change
+for any other path through the function. The fresh-skip check itself is one
+`if (Date.now() - persisted.fetchedAt <= COLD_START_STALE_AFTER_MS) return;`
+placed right after the existing "seed the display from the persisted entry"
+`setListState` call — the display-seeding behavior itself is unchanged, this
+only adds skipping the fetch that used to unconditionally follow it. No
+change to the revalidate-on-focus mechanism — a cold-start-skipped entry
+still carries its original (older) `fetchedAt`, so becoming the active list
+or the tab regaining focus later still evaluates it against the shorter
+`STALE_AFTER_MS` and revalidates in the background as normal; only the
+*initial* network round trip on cold start is skipped, not the plugin's
+staleness handling generally.
+
+Verified live in the browser preview (mobile viewport, 375×812, real
+IndexedDB via `@sovereignfs/sdk/offline`, not mocked): after a first
+navigation had already populated every list's persisted cache this session,
+a second fresh navigation (`force` reload, not a soft client nav) to the
+same list showed the exact same 17 tasks immediately with **zero** `POST`
+requests to the page's own server-action endpoint afterward — confirmed via
+the browser's own network log, contrasted directly against the ~20–23-request
+burst the identical navigation produced before this fix (same session, same
+account, same list). No console errors. This only demonstrates the
+already-fresh path; the "stale cold start still refetches for real" branch
+follows directly from the unchanged code path below the new early return and
+wasn't independently re-timed past the 5-minute mark (impractical to wait
+out live in this session), but is exercised by the same existing test-free
+verification convention this doc already uses elsewhere (this plugin has no
+component-testing infrastructure — see Issue 1's own implementation notes).
+
+---
+
+### Issue 10 — Mobile briefly double-mounts two independent data-fetch instances on every cold load
+
+**Category:** Data fetching / SSR-hydration mismatch
+**Status:** shipped
+
+**Symptom:** No standalone user-facing report — found incidentally while
+verifying Issue 8's concurrency cap with direct instrumentation. Not
+independently confirmed as user-visible (the window is brief), but flagged
+rather than silently ignored, since it directly affects how tight Issue 8's
+own concurrency bound actually is in practice on mobile specifically.
+
+**Root cause:** `app/_components/MobileAwareShell.tsx` picks between
+`DesktopTasksShell` and `MobileTasksCarousel` based on `@sovereignfs/ui`'s
+`useIsMobile()`, which is deliberately SSR-safe: it defaults to `false`
+(desktop) until the client mounts and reads the real viewport via
+`matchMedia`, specifically to avoid a hydration mismatch (see that hook's
+own doc comment in the platform repo). The consequence for this plugin: on
+every mobile page load, `DesktopTasksShell` — and the independent
+`useTasksData` hook instance it owns, including its own eager-fetch set and
+background-warm queue — briefly mounts first (both during SSR and the first
+client paint), then unmounts once the real viewport is known and
+`MobileTasksCarousel` takes over with its *own*, independent `useTasksData`
+instance. Each instance's own internal guards (`loadingIdsRef`,
+`backgroundQueueRef`) only know about fetches *it* started — neither
+instance is aware of the other — so for the brief window both are mounted,
+the two independently-capped queues run concurrently, and both instances
+end up fetching largely the same set of lists redundantly. This is
+pre-existing behavior, not introduced by Issue 8 or Issue 9's fixes in this
+pass — it was almost certainly already happening under Issue 2's original
+"fetch everything at mount" design too, just harder to notice underneath a
+much larger single-instance burst.
+
+**Proposed fix:** Three options were weighed: (a) resolve device type
+server-side so `MobileAwareShell` never renders the wrong shell even
+transiently; (b) have `DesktopTasksShell` skip its own eager/background
+fetching entirely until it's confirmed it will actually stay mounted; (c) do
+nothing — the window is brief and the redundant fetches are harmless
+(idempotent, no double-writes), just wasted network/CPU.
+
+**Investigated and rejected: option (a).** Checked whether
+`sdk.device.getSurface()`/`x-sovereign-surface` (RFC 0080) could answer this
+server-side, since it's already read via `next/headers` and reliably present
+on a plugin's own routes. It cannot: `docs/plugin-development.md`'s own
+"Surface vs. breakpoint" section is explicit that `getSurface()` answers
+*which shell* (browser/Capacitor/Tauri), never *how wide the viewport is* —
+a narrowed desktop browser window still reports `surface: 'browser'`. There
+is no documented server-side viewport signal in this repo, and inventing one
+(e.g. `User-Agent` sniffing for viewport width) would be unreliable and
+against the grain of how this repo already treats that exact class of
+signal. Ruled out on this basis, not merely deferred.
+
+**Decision:** (b), implemented as a `settled: boolean` prop threaded through
+`useTasksData`, not a timer.
+
+**Implementation notes:** First attempt used a `setTimeout(fn, 0)` inside
+`useTasksData`'s own mount effect to defer starting the background-warm
+queue, cancelled via the effect's cleanup on unmount — reasoning: React's
+own re-render-driven unmount (from `useIsMobile()`'s corrective
+`setIsMobile(true)`) happens within the same tick as the mount effect's own
+passive-effect flush, so a 0ms timer "should" lose the race and never fire
+for a transient instance. **This was wrong, caught by live verification, not
+assumed correct from the reasoning alone:** instrumented with a per-hook-
+instance random ID (`useRef(Math.random()...)`) tagging every
+scheduled/fired/cancelled log line, confirming two genuinely separate
+`useTasksData` instances exist on a mobile cold load (not, as first
+suspected, a single instance's own normal re-render churn — an earlier,
+cruder test without per-instance IDs couldn't tell the two apart, since
+duplicate/interleaved log lines can look identical to real concurrent
+instances either way). With that confirmed, the same instrumentation showed
+the transient `DesktopTasksShell` instance's `setTimeout(0)` **firing
+anyway** before its cleanup ran — the timer lost the race in practice. React
+18's passive-effect flush and a browser's 0ms-timeout floor (commonly
+clamped to ~4ms, and itself racing against however long React's own
+`setState`-triggered re-render-and-commit cycle takes) have no guaranteed
+ordering relative to each other; the reasoning that motivated the timer
+approach doesn't hold as a reliable guarantee, only as a common case.
+
+Replaced with a deterministic design: `MobileAwareShell` gains its own
+`[settled, setSettled] = useState(false)` plus `useEffect(() =>
+setSettled(true), [])` — `false` on first render (matching `useIsMobile()`'s
+own SSR-safe default, so no new hydration mismatch), flipping `true` on the
+next render, batched together with `isMobile`'s own correction since both
+are effects of the same component instance flushed in the same pass.
+`settled` is passed down to whichever shell is rendered and forwarded
+straight through to `useTasksData`, which uses it to gate *only* the
+background-warm push+drain (never the eager `activeListId`/`neighborListIds`
+fetches, which must stay immediate for both a surviving instance and
+correctness in the rare case a transient instance's eager fetch is still
+useful via Issue 9's persisted-cache path). This works because it's a prop
+value read at render time, not a race: `DesktopTasksShell`'s transient
+instance renders exactly once with `settled=false` before being unmounted
+(the swap to `MobileTasksCarousel` happens in the very render where
+`settled` would have become `true`, so that render never happens for the
+discarded instance) — its background-warm queue never starts, full stop, no
+timing dependency. `MobileTasksCarousel`, mounting fresh only once
+`isMobile` has already resolved true, receives `settled=true` from its own
+first render (per the batching above) and background-warms immediately, no
+added delay for the case that matters. A real, persisting `DesktopTasksShell`
+instance (genuine desktop viewport) costs one extra render-effect cycle
+before background-warming starts — verified live at single-digit
+milliseconds, imperceptible.
+
+Verified live with the same per-instance-ID instrumentation (removed before
+committing) at both viewports, cold cache each time
+(`indexedDB.deleteDatabase('sovereign-offline')` beforehand, same method as
+Issues 8/9's own verification): on mobile, the transient instance logged
+`not-settled-skip` and never logged a drain at all, while the real
+`MobileTasksCarousel` instance logged `SETTLED-draining` immediately on its
+first render — no wasted background-warm pass for the discarded instance,
+no added delay for the real one. On a real desktop viewport (no shell
+mismatch to begin with), the same single instance logged `not-settled-skip`
+then `SETTLED-draining` ~20ms later, confirming background-warming still
+reliably happens for the ordinary case, just one render-cycle later than
+before. No console errors and correct task data at either viewport
+afterward (screenshot-verified, matching Issues 8/9's own verification
+standard).
+
+**Relation to Issue 8:** discovered while verifying Issue 8's fix, and
+directly affects how tight that fix's concurrency guarantee is in practice
+on mobile (see Issue 8's own implementation notes, "A real,
+previously-undocumented interaction was found..."). Issue 8 was not blocked
+on this — its own fix is correct and independently verified within a single
+hook instance; this issue is about the two-instance interaction on top of
+it, not a flaw in Issue 8's own logic.
+
+---
+
 ## Part 2 — Data-fetching / caching architecture proposal
 
 ### Current state
+
+**Reopened and re-closed 2026-08-23 — Issues 8, 9, and 10 (Part 1) are now
+shipped**, closing the gaps the description below used to have: "every
+other list background-warms too" now means only the eager set (active +
+`±1` neighbors on mobile, active only on desktop) fetches immediately,
+everything else queues through a concurrency-capped background pass (Issue
+8); "persisted to IndexedDB... for a faster cold start" now actually skips
+the network fetch outright when the persisted entry is fresh enough, not
+just the loading-spinner flash (Issue 9); and the brief mobile-only
+double-mount of two independent cache instances on cold load found while
+verifying Issue 8 no longer wastes a full background-warm pass on the
+transient instance (Issue 10).
 
 - **Mobile carousel** (`MobileTasksCarousel.tsx`) and **desktop three-column
   layout** (`DesktopTasksShell.tsx`, new) now share one cache engine —
@@ -683,7 +1137,31 @@ currently has none.
    output directly, only using it as a refresh signal; desktop just needed
    the same treatment, not a routing rewrite). All three parts of this
    proposal — subtask caching, mobile list caching, desktop adoption — are
-   now shipped; nothing further is planned in this doc as of this writing.
+   now shipped.
+4. ~~Reopened (2026-08-23) — see Issues 8 and 9 in Part 1.~~ **Done.** The
+   "background-warm everything" decision that closed out step 3 above had
+   hit the scale it was already flagged to be revisited at (Issue 8), and a
+   separate gap was found alongside it — the persisted cache never actually
+   saved a network round trip, only a loading flash (Issue 9). Shipped in
+   the recommended order: Issue 9 first (smaller, isolated — a
+   `COLD_START_STALE_AFTER_MS` freshness check that skips the network fetch
+   outright for a fresh persisted entry), then Issue 8 (`±1`-neighbor eager
+   fetch on mobile / active-only on desktop, everything else through a
+   `BACKGROUND_WARM_CONCURRENCY`-capped queue). Both verified live — see
+   each issue's own implementation notes for the full account, including
+   Issue 8's own honest caveat about its real-world concurrency bound on
+   mobile specifically.
+5. ~~New — Issue 10 (Part 1).~~ **Done.** Found while verifying step 4:
+   `MobileAwareShell`'s SSR-safe `useIsMobile()` default briefly mounts
+   `DesktopTasksShell` (and its own independent cache instance) before
+   `MobileTasksCarousel` takes over on every mobile cold load — pre-existing
+   behavior, not introduced by this pass. Fixed with a `settled` prop
+   (`MobileAwareShell` → shell → `useTasksData`) gating only the
+   background-warm queue, replacing a first attempt using a `setTimeout`
+   race that live testing caught failing for the exact case it was meant to
+   fix — see that issue's own implementation notes for the full account,
+   including why server-side device detection (the other option considered)
+   was investigated and ruled out as not viable in this repo.
 
 ---
 

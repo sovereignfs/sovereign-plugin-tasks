@@ -4,17 +4,30 @@
   overflow: hidden;
 }
 
-.sidebar {
-  width: 240px;
-  flex-shrink: 0;
-  border-right: 1px solid var(--sv-color-border);
-  overflow-y: auto;
-  /* Recessed grey flank (matches the detail pane); the centre task pane is white.
-     Nudged a touch darker than --sv-color-surface-sunken via color-mix so it
-     stays theme-correct in dark mode (derives from the semantic token).
-     Exposed as a custom property so ListSidebar.module.css's .item can match
-     it exactly (list rows blend into the flank instead of sitting on their
-     own white slab) without duplicating the color-mix expression. */
+/* Below 768px, MobileAwareShell swaps this entire tree for
+   MobileTasksCarousel (a swipeable Lists index + one slide per list) instead
+   of the desktop three-column layout — so there is no mobile media query
+   here anymore. See MobileAwareShell.tsx and useIsMobile.ts. */
+
+/* DesktopTasksShell's own wrapper around @sovereignfs/ui's ThreeColumnLayout
+   — just establishes the height:100% sizing context the layout primitive
+   needs from its ancestor; the primitive itself owns flex/overflow. Carries
+   data-plugin-fullbleed (see DesktopTasksShell.tsx) since ThreeColumnLayout
+   has no prop to forward arbitrary attributes onto its own root. */
+.desktopFrame {
+  height: 100%;
+}
+
+/* Content for ThreeColumnLayout's sidebar slot. The layout primitive's own
+   .sidebar wrapper paints --sv-color-surface-raised underneath this, but
+   this plugin wants a recessed look instead — nudged a touch darker than
+   --sv-color-surface-sunken via color-mix so it stays theme-correct in dark
+   mode (derives from the semantic token). Exposed as a custom property so
+   ListSidebar.module.css's .item can match it exactly (list rows blend into
+   the flank instead of sitting on their own white slab) without duplicating
+   the color-mix expression. */
+.sidebarInner {
+  height: 100%;
   --tasks-sidebar-bg: color-mix(
     in srgb,
     var(--sv-color-surface-sunken),
@@ -23,14 +36,18 @@
   background: var(--tasks-sidebar-bg);
 }
 
-.content {
-  flex: 1;
-  min-width: 0;
-  overflow-y: auto;
-  background: var(--sv-color-surface);
+/* Content for ThreeColumnLayout's detail slot — same recessed flank as
+   .sidebarInner above, so the task list column reads as the white centre
+   between two matching grey flanks. TaskDetailPane's .body reads
+   --tasks-detail-bg (falling back to --sv-color-surface, the correct value
+   for the mobile Sheet context) for its own sticky header's opaque
+   background — see that component's own comment. */
+.detailInner {
+  height: 100%;
+  --tasks-detail-bg: color-mix(
+    in srgb,
+    var(--sv-color-surface-sunken),
+    var(--sv-color-text-primary) 3%
+  );
+  background: var(--tasks-detail-bg);
 }
-
-/* Below 768px, MobileAwareShell swaps this entire tree for
-   MobileTasksCarousel (a swipeable Lists index + one slide per list) instead
-   of stacking .sidebar above .content — so there is no mobile media query
-   here anymore. See MobileAwareShell.tsx and useIsMobile.ts. */
