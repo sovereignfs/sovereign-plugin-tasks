@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useIsMobile } from '../_lib/useIsMobile';
 import type { ListRow } from '../_lib/types';
 import DesktopTasksShell from './DesktopTasksShell';
@@ -64,6 +64,24 @@ export default function MobileAwareShell({
 }: Props) {
   const isMobile = useIsMobile();
 
+  // Findings doc Issue 10: `false` on this component's own first render
+  // (matching `useIsMobile`'s own SSR-safe default, so no hydration
+  // mismatch) and flips `true` on the very next render — in practice the
+  // same render where `isMobile` itself gets corrected, since both are set
+  // from effects on this same component and React batches the resulting
+  // re-render. Passed down as `settled` so DesktopTasksShell/
+  // MobileTasksCarousel's own `useTasksData` instance knows whether it's
+  // safe to start background-warming every other list: whichever shell
+  // matches this component's *first* render (its own SSR default) is
+  // briefly mounted with `settled=false`, then either unmounts (if the real
+  // viewport picked the other shell — its background-warm pass never
+  // started at all) or re-renders with `settled=true` (if it's the real
+  // choice — background-warming starts one render later, imperceptibly).
+  const [settled, setSettled] = useState(false);
+  useEffect(() => {
+    setSettled(true);
+  }, []);
+
   if (isMobile) {
     return (
       <div className={styles.shell} data-plugin-fullbleed>
@@ -73,6 +91,7 @@ export default function MobileAwareShell({
           footerApps={footerApps}
           launcherIconUrl={launcherIconUrl}
           refreshSignal={children}
+          settled={settled}
         >
           {children}
         </MobileTasksCarousel>
@@ -81,7 +100,12 @@ export default function MobileAwareShell({
   }
 
   return (
-    <DesktopTasksShell lists={lists} starredCount={starredCount} refreshSignal={children}>
+    <DesktopTasksShell
+      lists={lists}
+      starredCount={starredCount}
+      refreshSignal={children}
+      settled={settled}
+    >
       {children}
     </DesktopTasksShell>
   );

@@ -26,6 +26,24 @@ const PLUGIN_ID = 'fs.sovereign.tasks';
  */
 export const STALE_AFTER_MS = 60_000;
 
+/**
+ * How long a *persisted* (IndexedDB) entry is trusted enough to skip the
+ * network fetch entirely on cold start (findings doc Issue 9), rather than
+ * merely seeding the display while a fetch always follows anyway. Longer
+ * than `STALE_AFTER_MS` deliberately — that threshold protects a
+ * same-session "did another tab just change this" case, where a short
+ * window matters; a cold start (the app was closed and reopened) is a
+ * different situation where task lists realistically don't change every
+ * minute for most users, and any edit the user makes themselves after
+ * reload still goes through the normal optimistic-update + refresh-signal
+ * path regardless of this threshold. Cross-tab/cross-device edits made
+ * *before* this window elapses simply won't show up until the list is
+ * actually revisited (which still revalidates via `STALE_AFTER_MS`) or this
+ * threshold itself lapses — an accepted tradeoff for cutting the cold-start
+ * request burst (see Issue 8).
+ */
+export const COLD_START_STALE_AFTER_MS = 5 * 60_000;
+
 export interface CachedList {
   tasks: TaskRow[];
   showCompleted: boolean;

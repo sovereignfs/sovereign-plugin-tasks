@@ -15,6 +15,7 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -108,6 +109,10 @@ interface Props {
    *  showing whatever list `indexForPathname`'s own fallback lands on. See
    *  `isCarouselRoute`'s own doc comment. */
   children: ReactNode;
+  /** Forwarded straight through to `useTasksData` — see that hook's own doc
+   *  comment on this same prop and `MobileAwareShell`'s doc comment on where
+   *  it comes from (findings doc Issue 10). */
+  settled: boolean;
 }
 
 /**
@@ -166,6 +171,17 @@ function pathForIndex(index: number, lists: ListRow[]): string {
   return list ? `/tasks/${list.id}` : '/tasks';
 }
 
+/** The `useTasksData` cache key (real list id or `STARRED_LIST_ID`) for a
+ *  given slide index, or `null` for the Lists index slide (0), which has no
+ *  cache entry of its own — used to compute `±1` slide-adjacency neighbors
+ *  for eager prefetch (findings doc Issue 8, restoring the original
+ *  pre-Issue-2 mobile design's `[active-1, active, active+1]` priority). */
+function listIdForSlideIndex(index: number, lists: ListRow[]): string | null {
+  if (index === 0) return null;
+  if (index === 1) return STARRED_LIST_ID;
+  return lists[index - 2]?.id ?? null;
+}
+
 export default function MobileTasksCarousel({
   lists,
   starredCount,
@@ -173,6 +189,7 @@ export default function MobileTasksCarousel({
   launcherIconUrl,
   refreshSignal,
   children,
+  settled,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -236,6 +253,18 @@ export default function MobileTasksCarousel({
   const activeListId = activeIsStarred ? STARRED_LIST_ID : (activeList?.id ?? null);
   const taskIdParam = searchParams.get('task');
 
+  // ±1 slide-adjacency neighbors, eagerly fetched alongside activeListId
+  // (findings doc Issue 8) — keeps a single swipe instant without the
+  // "fetch every list at mount" cost that Issue 2's original design paid
+  // regardless of how many lists actually get visited this session.
+  const neighborListIds = useMemo(
+    () =>
+      [listIdForSlideIndex(activeIndex - 1, lists), listIdForSlideIndex(activeIndex + 1, lists)].filter(
+        (id): id is string => id !== null,
+      ),
+    [activeIndex, lists],
+  );
+
   // Cache/staleness/persistence engine — shared with DesktopTasksShell, see
   // _lib/useTasksData.ts's own doc comment for why this was extracted
   // (findings doc Issue 2 / Part 2, desktop adoption).
@@ -243,6 +272,8 @@ export default function MobileTasksCarousel({
     useTasksData({
       lists,
       activeListId,
+      neighborListIds,
+      settled,
       taskIdParam,
       refreshSignal,
     });
