@@ -132,19 +132,20 @@
   }
 }
 
-/* Mobile: this handle is now the *only* way to start a reorder drag (see
+/* Mobile: this handle is still the *only* way to start a reorder drag (see
    TaskItem.tsx's rowDragListeners — whole-row touch forwarding was removed
    so a swipe starting anywhere else on the row is unambiguously the
-   carousel's navigate gesture, not a competing drag lift). It can't stay
-   hover-revealed-only (there's no hover state on touch) or 12x12 (well under
-   any usable touch-target size), so both are overridden here. The enlarged
-   box stays within .row's own 20px left padding gutter (--sv-space-5) so it
-   doesn't encroach on the checkbox's tap target immediately to its right;
-   the visual glyph (GripIcon, fixed 12x12 SVG) stays centered and the same
-   apparent size — only the invisible hit area grows. */
+   carousel's navigate gesture, not a competing drag lift) — but per direct
+   product decision it must never be visually shown there, unlike desktop's
+   hover-revealed grip glyph. It can't stay hover-revealed-only (there's no
+   hover state on touch) or 12x12 (well under any usable touch-target size),
+   so pointer-events/size are overridden here same as before; opacity stays
+   permanently 0 instead of flipping to 1. The enlarged box stays within
+   .row's own 20px left padding gutter (--sv-space-5) so it doesn't encroach
+   on the checkbox's tap target immediately to its right. */
 @media (max-width: 768px) {
   .dragHandle {
-    opacity: 1;
+    opacity: 0;
     pointer-events: auto;
     left: 1px;
     top: calc(var(--sv-space-3) - 3px);
@@ -161,6 +162,19 @@
 .wrapper:focus-within .dragHandle,
 .dragging .dragHandle {
   opacity: 1;
+}
+
+/* Re-assert invisibility on mobile even while the hover/focus/dragging rule
+   above would otherwise reveal it (.dragging in particular applies mid-drag,
+   including a touch-driven one) — matching selector specificity, later in
+   source order, so this wins the cascade at this breakpoint without needing
+   !important. The hit area (and thus drag functionality) is unaffected. */
+@media (max-width: 768px) {
+  .wrapper:hover .dragHandle,
+  .wrapper:focus-within .dragHandle,
+  .dragging .dragHandle {
+    opacity: 0;
+  }
 }
 
 .row {

@@ -2,7 +2,7 @@
 
 import { Button, Checkbox, EmptyState, Icon } from '@sovereignfs/ui';
 import { useRouter } from 'next/navigation';
-import { useLayoutEffect, useOptimistic, useRef, useState, useTransition } from 'react';
+import { useEffect, useLayoutEffect, useOptimistic, useRef, useState, useTransition } from 'react';
 import { deleteTask, setRecurrenceRule, toggleComplete, updateTask } from '../_lib/actions';
 import DueDateControl from './DueDateControl';
 import ListPickerControl from './ListPickerControl';
@@ -83,6 +83,24 @@ function DetailBody({
   const router = useRouter();
   const [title, setTitle] = useState(task.title);
   const [notes, setNotes] = useState(task.notes ?? '');
+  // `key={task.id}` (TaskDetailPane above) only re-initialises these buffers
+  // when the user switches to a *different* task — it does nothing when this
+  // same task's own `task` prop is later replaced with fresher data, which
+  // happens whenever the caller briefly renders an optimistic stand-in (built
+  // from the list-level cache, which can itself be a few minutes stale on a
+  // cold mobile load — see listCache.ts's COLD_START_STALE_AFTER_MS) before
+  // the real getTask() fetch resolves. Without this effect, title/notes stay
+  // stuck on whatever the optimistic snapshot had at mount, even after the
+  // real value arrives, since useState's initializer only ever runs once.
+  // Re-syncs whenever the server-derived value actually changes; harmless if
+  // it fires while the user's own edit already matches (same value in, same
+  // value out).
+  useEffect(() => {
+    setTitle(task.title);
+  }, [task.title]);
+  useEffect(() => {
+    setNotes(task.notes ?? '');
+  }, [task.notes]);
   // Optimistic completion — same reasoning as TaskItem's checkbox: flip
   // instantly instead of waiting on the toggleComplete round trip. onFieldPatch
   // keeps mobile's detailTask cache in sync so the optimistic value doesn't

@@ -467,7 +467,62 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.23.3** (`0.23.2` → `0.23.3` fixes a second WebKit-only
+Current version: **0.24.1** (`0.24.0` → `0.24.1` bundles four fixes from one
+session of direct developer testing/feedback, all touching desktop/mobile
+drag-and-drop and list/task row interaction:
+(1) **List sidebar drag handle** (`ListSidebar.tsx`/`.module.css`): removed
+from mobile entirely (not just CSS-hidden — the `<button>` no longer renders
+there; `useIsMobile()`-gated), restored/unchanged on desktop. Reported
+directly, then corrected mid-session after an initial pass wrongly removed it
+from both platforms — mobile reorder still works via long-press-anywhere on
+the row (`rowInner` carries `attributes`/`listeners` itself when the handle
+isn't rendered), only the redundant small hover-only-on-desktop visual affordance
+is gone from touch.
+(2) **List rows fully clickable**: `.link::after` stretched-hit-area pseudo
+added so the whole row (not just the title text) navigates — `.dotButton`
+gained its own `z-index` to stay independently clickable above that overlay.
+(3) **Task row drag handle on mobile** (`TaskItem.module.css`): kept
+functionally draggable (same 18×18px touch target, `pointer-events: auto`)
+but permanently invisible there (`opacity: 0`, including while hovered/
+dragging — a mobile-scoped override re-asserts this over the desktop
+hover/focus/dragging reveal rule) — desktop keeps the unchanged hover-reveal.
+Landed only after two rounds of live back-and-forth: an initial "it still
+doesn't work" report turned out to be a stale client-side CSS cache (fixed by
+a hard refresh, not a code change), and a follow-up "removed from desktop
+too" report turned out to be genuine — my own first live verification pass
+gave a false positive from reading `getComputedStyle` mid-CSS-transition and
+from a mis-scoped `[class*="TaskItem_row"]` query substring-matching
+`.rowContainer` instead of `.row`; re-verified correctly via a real
+`:focus-within` check held past the transition, and confirmed working.
+(4) **Task drag-reorder flicker** (`[listId]/TasksPane.tsx`): dropping a
+dragged task briefly snapped back to its pre-drag position before
+re-correcting to the real order, reported directly and confirmed via the
+user's own description ("snaps back then re-corrects") to match a real
+`useOptimistic`/`router.refresh()` timing gap — `handleDragEnd`'s optimistic
+reorder is discarded the instant its own transition settles (right after
+`reorderTasks()`'s await resolves), which happens *before* `router.refresh()`'s
+separately-timed fresh `initialTasks` prop actually lands, so the array
+briefly reverts to the stale pre-drag order in between. Fixed with a plain
+(non-optimistic) `pendingReorderIds` state, set synchronously the instant a
+drag ends and cleared only once `initialTasks` itself confirms the same
+order — immune to the transition-timing gap since it isn't tied to any
+transition's own pending lifecycle. Verified live end-to-end by the developer
+("confirm no flicker anymore, drag works smoothly") — automated mouse-drag
+reproduction wasn't achievable in this session's browser-automation harness
+(dnd-kit's `MouseSensor` activation proved unreliable to synthesize; see (3)'s
+own methodology notes for the same category of tooling limitation). A fifth,
+unrelated fix landed in the same commit: `TaskDetailPane.tsx`'s `title`/
+`notes` local state now resyncs via `useEffect` when the underlying task's
+real values change — previously stuck on a stale optimistic snapshot (see
+`listCache.ts`'s cold-start staleness window) if the real `getTask()` fetch
+resolved after mount. Also added `scripts/seed.ts`, a new idempotent dev-only
+seed script (5 lists, 23 tasks, 15 subtasks covering overdue/due-today/
+recurring/starred/subtask/long-title cases) for local testing — not
+version-bump-relevant on its own (dev tooling, not shipped plugin behavior)
+but bundled into this same commit at the developer's direction.
+(Note: the gap between `0.23.3` and `0.24.0` was bumped by another session
+without a matching entry here; not backfilled, since this session has no
+first-hand knowledge of what it contained.) `0.23.2` → `0.23.3` fixes a second WebKit-only
 artifact in the same "⋯" options menu `0.23.2` just fixed — reported
 directly with a real-device screenshot ("drag handle in drawer component,
 comes from tasks maybe"), not found live-testing. With the menu correctly
