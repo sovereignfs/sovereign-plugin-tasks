@@ -21,6 +21,7 @@
   },
   "devDependencies": {
     "@sovereignfs/tsconfig": "workspace:*",
+    "@libsql/client": "^0.15.15",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "drizzle-kit": "^0.31.10",

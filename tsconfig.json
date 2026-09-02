@@ -13,7 +13,8 @@
     "components/**/*.ts",
     "components/**/*.tsx",
     "lib/**/*.ts",
-    "db/**/*.ts"
+    "db/**/*.ts",
+    "scripts/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

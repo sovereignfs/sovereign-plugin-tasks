@@ -162,14 +162,16 @@ export default function ListSidebar({ lists: initialLists, starredCount }: Props
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
 
-    // A mouse- or touch-driven drag leaves the handle <button> focused
+    // A mouse-driven drag (desktop) leaves the handle <button> focused
     // (native pointerdown-focuses-button behavior); dnd-kit never blurs it
-    // after drop, so :focus-within keeps the grip/menu revealed on the
-    // dragged row even once the pointer has moved elsewhere — alongside
-    // whatever row is now genuinely hovered. Release it so only real hover
-    // governs visibility. Keyboard-driven reorders intentionally keep focus
-    // on the handle so arrow-key navigation can continue, so this only fires
-    // for mouse/touch input.
+    // after drop, so :focus-within keeps the grip revealed on the dragged
+    // row even once the pointer has moved elsewhere — alongside whatever row
+    // is now genuinely hovered. A touch-driven drag (mobile, no handle)
+    // leaves .rowInner focused instead, which carries `attributes` itself
+    // there — see ListItem. Release focus so only real hover governs
+    // visibility. Keyboard-driven reorders intentionally keep focus on
+    // whichever element carries `attributes` so arrow-key navigation can
+    // continue, so this only fires for mouse/touch input.
     if (!(event.activatorEvent instanceof KeyboardEvent)) {
       (document.activeElement as HTMLElement | null)?.blur();
     }
@@ -491,17 +493,13 @@ function ListItem({
     id: list.id,
   });
   const style = { transform: CSS.Transform.toString(transform), transition };
-  // Every breakpoint: let a press-and-drag anywhere on the row (not just the
-  // ~12px hover-revealed handle) lift it. The handle is easy to miss
-  // entirely — opacity:0 until :hover, and small even once visible — so
-  // unlike TaskItem (which keeps desktop drag handle-only, see that
-  // component's own comment), list rows forward the *full* `listeners`
-  // object unconditionally: MouseSensor's own 8px activation distance
+  // Desktop keeps the hover-revealed handle (below); mobile has none —
+  // touch reorder is long-press-anywhere on the row, and a small fixed
+  // handle is a poor touch target besides. Press-and-drag anywhere on the
+  // row lifts it either way (MouseSensor's own 8px activation distance
   // already keeps a plain click (rename/navigate/open colour picker) from
-  // being mistaken for a drag, so there's no narrow-desktop-window
-  // trade-off to guard against here the way TaskItem's touch-only forward
-  // has to. The handle itself keeps `attributes` + `listeners` below too,
-  // unchanged — both remain valid ways to start the same drag.
+  // being mistaken for a drag), so this is purely which affordance is
+  // shown, not a difference in what's draggable.
   const rowDragListeners = listeners;
 
   // Desktop: e.detail === 2 is the browser's own resolved double-click
@@ -635,15 +633,24 @@ function ListItem({
         .filter(Boolean)
         .join(' ')}
     >
-      <button
-        type="button"
-        className={styles.dragHandle}
-        aria-label="Drag to reorder"
-        {...attributes}
-        {...listeners}
-      >
-        <GripIcon />
-      </button>
+      {/* Desktop only — mobile reorders by long-press anywhere on the row
+          instead (see rowDragListeners' own comment); a small fixed handle
+          is a poor touch target besides. Carries `attributes` (dnd-kit's
+          sortable ARIA role/tabIndex) since it's desktop's dedicated,
+          focusable drag-initiation element — `.rowInner` below only takes
+          `attributes` itself when this handle doesn't exist (mobile), so
+          keyboard-initiated reorder always has exactly one carrier. */}
+      {!isMobile && (
+        <button
+          type="button"
+          className={styles.dragHandle}
+          aria-label="Drag to reorder"
+          {...attributes}
+          {...listeners}
+        >
+          <GripIcon />
+        </button>
+      )}
       {/* Mobile-only swipe-to-delete reveal, sitting behind .rowInner (see
           its own z-index/position in the CSS) — .rowInner has an opaque,
           inherited background so this stays hidden until dragged into view. */}
@@ -664,6 +671,7 @@ function ListItem({
         ref={rowInnerRef}
         className={styles.rowInner}
         style={{ transform: swipeOpen ? `translateX(-${SWIPE_REVEAL_WIDTH}px)` : undefined }}
+        {...(isMobile ? attributes : undefined)}
         {...rowDragListeners}
       >
         {isMobile ? (

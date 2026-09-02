@@ -170,11 +170,49 @@ export default function TasksPane({
   const titleRowRef = useRef<HTMLDivElement>(null);
   const shadowRowRef = useRef<HTMLDivElement>(null);
 
-  const [tasks, applyTaskAction] = useOptimistic(initialTasks, tasksReducer);
+  const [optimisticTasks, applyTaskAction] = useOptimistic(initialTasks, tasksReducer);
   const [completedOpen, setCompletedOpen] = useOptimistic(
     initialShowCompleted,
     (_prev, next: boolean) => next,
   );
+
+  // Bridges the gap between a reorder's own transition settling (which drops
+  // the useOptimistic overlay above, reverting `optimisticTasks` to whatever
+  // `initialTasks` prop is CURRENT at that instant) and router.refresh()'s
+  // fresh, reordered `initialTasks` actually arriving and re-rendering this
+  // component — two separate, independently-timed events. Calling
+  // router.refresh() from inside the same transition as the optimistic
+  // dispatch does not reliably keep that transition "pending" for the whole
+  // round trip, so there's a real window where `optimisticTasks` shows the
+  // stale pre-drag order before the refreshed one lands — visible as the
+  // dropped row snapping back to its old position, then re-correcting a
+  // moment later. A plain (non-optimistic) id-order override, set the
+  // instant a drag ends and cleared only once `initialTasks` itself confirms
+  // the same order, is immune to that transition-timing gap since it isn't
+  // tied to any transition's pending lifecycle.
+  const [pendingReorderIds, setPendingReorderIds] = useState<string[] | null>(null);
+  useEffect(() => {
+    if (!pendingReorderIds) return;
+    const currentIds = initialTasks.map((t) => t.id);
+    const matches =
+      currentIds.length === pendingReorderIds.length &&
+      currentIds.every((id, i) => id === pendingReorderIds[i]);
+    if (matches) setPendingReorderIds(null);
+  }, [initialTasks, pendingReorderIds]);
+  const tasks = pendingReorderIds
+    ? (() => {
+        const byId = new Map(optimisticTasks.map((t) => [t.id, t]));
+        const reordered = pendingReorderIds
+          .map((id) => byId.get(id))
+          .filter((t): t is TaskWithListMeta => t !== undefined);
+        // A task pendingReorderIds doesn't know about yet (e.g. one added by
+        // another tab) would otherwise vanish from the override — append any
+        // such stragglers rather than silently dropping them.
+        const known = new Set(pendingReorderIds);
+        const stragglers = optimisticTasks.filter((t) => !known.has(t.id));
+        return [...reordered, ...stragglers];
+      })()
+    : optimisticTasks;
 
   // TSK-19 — keyboard row focus (j/k/Up/Down), independent of `selectedTaskId`
   // (the task open in the detail pane).
@@ -442,6 +480,10 @@ export default function TasksPane({
       vi += 1;
       return next?.id ?? t.id;
     });
+    // Set synchronously, outside the transition below — see pendingReorderIds'
+    // own doc comment for why this (not the transition-scoped optimistic
+    // dispatch alone) is what actually prevents the post-drop flicker.
+    setPendingReorderIds(ids);
     startTransition(async () => {
       applyTaskAction({ type: 'reorder', ids });
       await reorderTasks(listId, ids);

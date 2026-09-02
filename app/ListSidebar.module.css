@@ -32,8 +32,7 @@
   align-items: center;
   justify-content: space-between;
   /* Left indent matches .rowInner/.editRow below — keeps the heading aligned
-     with list-row content even though it's a touch wider than --sv-space-4,
-     to leave the drag handle room to breathe (see .dragHandle). */
+     with list-row content, which starts at the same --sv-space-5 inset. */
   padding: 0 var(--sv-space-4) var(--sv-space-2) var(--sv-space-5);
 }
 
@@ -95,11 +94,14 @@
 }
 
 .item {
-  /* Relative anchor for the floating drag handle (no reserved gutter — the
-     handle overlays the same 16px indent the content already sits at, so
-     rows line up with the "My lists" heading and search box above them) and
+  /* Relative anchor for the floating drag handle (desktop only — no reserved
+     gutter, it overlays the same 16px indent the content already sits at, so
+     rows line up with the "My lists" heading and search box above them),
      for .swipeDeleteBg (mobile swipe-to-delete — see .rowInner/.swipeDeleteBg
-     below). background-color is explicit (not the default transparent) so
+     below), and for .link's stretched-hit-area pseudo-element (see .link
+     below), which resolves against .rowInner — itself positioned — rather
+     than this element directly, but the same positioning-context reasoning
+     applies. background-color is explicit (not the default transparent) so
      .rowInner's own `background-color: inherit` always resolves to whatever
      this row's current background actually is (default/hover/active),
      without needing its own separate state. Default matches the sidebar
@@ -136,6 +138,9 @@
   background: var(--sv-color-surface-raised);
 }
 
+/* Desktop only (see ListItem — this button doesn't render on mobile at all,
+   not just hidden by CSS). Hover-revealed, so it stays out of the way until
+   the row is actually being interacted with. */
 .dragHandle {
   all: unset;
   position: absolute;
@@ -162,27 +167,14 @@
      going to 1 doesn't matter when a later sibling paints over it. This
      button is declared *before* .rowInner in the markup, and .rowInner has
      an opaque (inherited) background with no z-index of its own on desktop
-     (only gets z-index:1 under the mobile media query below) — two
-     position:relative/absolute siblings with no z-index difference paint in
-     DOM order, so .rowInner (later, opaque) always covered this regardless
-     of its own opacity. An explicit z-index here, higher than every other
-     value used in this row's stacking context (.rowInner's mobile z-index:1,
-     .swipeEdgeZone's 2, .listOptionsBtn's 3), guarantees it paints on top in
-     both breakpoints. This was a pre-existing bug, not introduced by the
-     recent drag-reorder work — just never noticed before, since dragging
-     only became a discoverable, expected desktop interaction once row-level
-     drag shipped alongside it. */
+     — two position:relative/absolute siblings with no z-index difference
+     paint in DOM order, so .rowInner (later, opaque) always covered this
+     regardless of its own opacity. An explicit z-index here, higher than
+     every other value used in this row's stacking context (.swipeEdgeZone's
+     2, .listOptionsBtn's 3 — both mobile-only, so moot alongside a
+     desktop-only element, but kept for headroom), guarantees it paints on
+     top. */
   z-index: 4;
-}
-
-/* On pure-touch devices the handle is never revealed (hover/focus only, below)
-   and drag-reorder isn't a usable touch gesture here — make it inert to touch
-   so a scroll starting on this invisible corner isn't captured as a drag (plan
-   finding 1.5). Desktop / hybrid touch-laptops (hover: hover) keep it draggable. */
-@media (hover: none) {
-  .dragHandle {
-    pointer-events: none;
-  }
 }
 
 .dragHandle:active {
@@ -323,6 +315,22 @@
   color: var(--sv-color-text-primary);
 }
 
+/* Stretched-hit-area pattern: .link's own box only spans the middle segment
+   of the row (between the dot and the trailing count), but this pseudo is
+   absolutely positioned against .rowInner (the nearest positioned ancestor —
+   see .item's own comment), covering it edge to edge — so a click anywhere
+   on the row, including the padding either side of the visible content,
+   navigates via this same <Link>. A positioned element with z-index:auto
+   still paints above any *non*-positioned sibling regardless of DOM order,
+   which is why .dotButton below needs its own explicit z-index to stay
+   independently clickable above this overlay; .listOptionsBtn/.swipeEdgeZone
+   already have one (see their own rules) and are unaffected. */
+.link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
 /* Mobile: a plain, non-interactive indicator — colour lives in the combined
    rename+colour drawer instead (see ListItem). */
 .dot {
@@ -345,9 +353,13 @@
 
 /* Desktop only — the dot becomes an interactive trigger for the double-click
    colour popover (see ListItem), so it needs button reset + a visible focus
-   affordance on top of .dot's plain visual styling. */
+   affordance on top of .dot's plain visual styling. position+z-index keep it
+   clickable above .link's stretched hit-area pseudo (see .link's own
+   comment) despite coming before .link in DOM order. */
 .dotButton {
   all: unset;
+  position: relative;
+  z-index: 1;
   width: 8px;
   height: 8px;
   border-radius: 50%;
