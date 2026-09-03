@@ -467,7 +467,74 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.24.1** (`0.24.0` → `0.24.1` bundles four fixes from one
+Current version: **0.24.2** (`0.24.1` → `0.24.2` is a self-directed mobile-UI
+review the developer asked for directly ("review it yourself and identify
+issues... gestures has some inconsistencies too"), fixing the three findings
+they asked to be fixed (in the order listed) and deliberately leaving a
+fourth as-is at their explicit direction:
+(1) **Mobile carousel jump desync** — the footer's "Lists" button and the
+slide-dot indicator could visually desync from the actual carousel position
+after tapping them; the underlying `@sovereignfs/ui` bug and fix live in the
+platform repo's own `useSnapCarousel` hook, not here — see that repo's own
+`CLAUDE.md` for the full account. `@sovereignfs/ui` bumped `0.81.0` →
+`0.81.1`.
+(2) **Broken mobile search** — tapping the mobile footer's Search icon
+landed on `/tasks/search` with no input anywhere on screen (the empty-state
+heading/description are static text, not a control), and submitting a query
+from the Lists slide's search box had the same gap in reverse: once on the
+results page, there was no way to edit or clear the query without swiping
+back to the Lists slide. New `app/search/MobileSearchBox.tsx` (mobile-only,
+gated on `useIsMobile()`; renders `null` on desktop, where `ListSidebar`'s
+own always-visible sidebar search box already covers this) reuses
+`ListSidebar`'s exact search box styles rather than duplicating them, and is
+rendered at the top of all three of `search/page.tsx`'s branches (empty,
+no-matches, results) so the box is always present and always reflects the
+current `?q=`. Verified live end-to-end: footer Search → type → results,
+and refining the query directly from the results page, both confirmed
+working with no navigation gap.
+(3) **Undiscoverable mobile task reorder** — `TaskItem`'s drag handle is
+permanently invisible on mobile by direct product decision (`0.24.0`'s own
+entry below), which left no way for a mobile user to ever learn a task
+could still be reordered by long-press near the row's left edge — unlike
+list rows, a task row's touch reorder isn't triggerable by press-and-drag
+anywhere on the row (that gesture is reserved for the carousel's own
+swipe-navigation; see `TaskItem.tsx`'s `rowDragListeners` comment), so
+there's no equivalent of `ListSidebar`'s own auto-peek swipe-hint to
+demonstrate it. Added a one-time `@sovereignfs/ui` `Toast` ("Long-press near
+the left edge of a task to reorder it.") in `TasksPane.tsx`, gated on a
+`localStorage` flag so it only ever shows once. **Caught and fixed a real
+race in the first implementation, via live console-log instrumentation, not
+assumed correct**: the mobile carousel keeps a small prefetch window of
+`TasksPane` instances mounted simultaneously (e.g. the active list plus its
+±1 neighbors), and each independently checked `localStorage` before any of
+them had set it yet, so two neighboring lists' instances could both pass the
+check and each fire their own toast — a live trace with temporary
+`console.log` calls (removed before finishing) caught both the "Work" and
+"Personal" list instances scheduling and firing at the same moment. Fixed
+with a module-level (not per-instance) `reorderHintClaimedThisSession` flag,
+checked and set synchronously in the same tick the effect runs, so only the
+first-mounted instance ever claims it regardless of timing — the trade-off
+being that if that first instance unmounts before its 800ms timer fires, the
+hint just doesn't show this session rather than showing twice, accepted for
+a one-time, low-stakes educational toast. A separate live-testing detour
+during this fix: an initial toast-not-appearing-in-my-checks observation
+turned out to be my own verification's tool round-trip latency exceeding the
+toast's 4s display window (confirmed by temporarily firing it with a 0ms
+delay and 30s duration, which did render correctly) — not a bug in the
+toast mechanism itself, caught before it was wrongly reported as one.
+**Finding #4, left as-is at direct instruction**: task rows' swipe-to-reveal
+`.swipeEdgeZone` (20px, matching the row's own right padding) is much
+narrower than `ListSidebar`'s equivalent (48px) — but measured live before
+proposing a fix, and confirmed the two aren't actually comparable: a task
+row's free space right of the star button is exactly 20px today, so
+widening the zone to 48px would sit directly on top of the star button and
+block it. Actually creating room means either growing the row's right
+padding (which is deliberately kept equal to the left padding for alignment
+with the header/add-task row above it — a real visual regression) or letting
+the zone overlap the star with pointer-event layering (fragile, real risk of
+silently breaking star-tapping at the boundary) — a genuine design trade-off
+this session flagged rather than resolved unilaterally; left untouched per
+the developer's explicit call. `0.24.0` → `0.24.1` bundles four fixes from one
 session of direct developer testing/feedback, all touching desktop/mobile
 drag-and-drop and list/task row interaction:
 (1) **List sidebar drag handle** (`ListSidebar.tsx`/`.module.css`): removed
