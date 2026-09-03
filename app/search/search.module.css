@@ -3,6 +3,13 @@
   max-width: 680px;
 }
 
+/* Standalone top padding for MobileSearchBox — ListSidebar's own .nav (its
+   other mount point) supplies this via its container instead, but this page
+   has no equivalent wrapper above the search box. */
+.mobileSearchWrap {
+  padding-top: var(--sv-space-4);
+}
+
 .heading {
   margin: 0 0 var(--sv-space-4);
   font-size: var(--sv-font-size-lg);

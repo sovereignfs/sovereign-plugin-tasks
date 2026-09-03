@@ -10,6 +10,7 @@ import {
   type MenuEntry,
   SegmentedControl,
   useCommitOnEnterOrBlur,
+  useToast,
 } from '@sovereignfs/ui';
 import { useRouter } from 'next/navigation';
 import { useEffect, useLayoutEffect, useOptimistic, useRef, useState, useTransition } from 'react';
@@ -35,6 +36,21 @@ import type { ListRow, TaskRow } from '../_lib/types';
 import styles from './TasksPane.module.css';
 
 type Filter = 'all' | 'active' | 'overdue';
+
+// Module-level (not per-instance) claim for the one-time mobile reorder
+// hint below — the carousel keeps a small prefetch window of TasksPane
+// instances mounted simultaneously (e.g. the active list plus its ±1
+// neighbors), and each independently checks localStorage before it's been
+// set, so without this they can race and each schedule their own toast,
+// showing the hint twice. A synchronous, shared, in-memory guard (checked
+// and set in the same tick the effect runs, before any timer fires) lets
+// only the first mounted instance claim it, regardless of timing. Resets
+// on a fresh page load, unlike the localStorage flag the claiming instance
+// itself sets once its toast actually fires — if the claiming instance
+// unmounts before its timer fires, the hint just doesn't show this
+// session rather than showing twice; an acceptable trade for a one-time,
+// low-stakes educational toast.
+let reorderHintClaimedThisSession = false;
 
 /** initialTasks' actual shape — plain TaskRow for a real list, decorated with
  *  the source list's title/colour when virtualList (TSK-28's Starred view;
@@ -119,6 +135,7 @@ export default function TasksPane({
 }: Props) {
   const router = useRouter();
   const isMobile = useIsMobile();
+  const toast = useToast();
   const [newTitle, setNewTitle] = useState('');
   const [filter, setFilter] = useState<Filter>('active');
   const [_isPending, startTransition] = useTransition();
@@ -230,6 +247,36 @@ export default function TasksPane({
   const sensors = useReorderSensors();
 
   const active = tasks.filter((t) => t.completedAt === null);
+
+  // One-time mobile hint that a task can still be reordered by touch, even
+  // though (per direct product decision) TaskItem's own drag handle is
+  // permanently invisible there — unlike ListSidebar's rows, a task row's
+  // touch reorder isn't discoverable by press-and-drag-anywhere (that
+  // gesture is reserved for the mobile carousel's own swipe-navigation, see
+  // TaskItem.tsx's rowDragListeners comment), so with no visible affordance
+  // at all there's currently no way for a mobile user to ever learn this is
+  // possible. Mirrors ListSidebar's own "tasks:seen-swipe-hint" one-time
+  // peek in spirit (gate on localStorage, never repeat) but as a toast
+  // rather than an auto-opened reveal — there's no equivalent "peek" state
+  // for a drag to auto-demonstrate. Fires from whichever list's TasksPane
+  // mounts first (the mobile carousel keeps a small prefetch window of
+  // instances mounted at once); the localStorage flag makes any of them
+  // showing it a one-time, not per-list, event.
+  useEffect(() => {
+    if (!isMobile || virtualList || sortBy !== 'manual' || active.length < 2) return;
+    if (localStorage.getItem('tasks:seen-reorder-hint')) return;
+    if (reorderHintClaimedThisSession) return;
+    reorderHintClaimedThisSession = true;
+    const timer = setTimeout(() => {
+      toast.show({
+        title: 'Tip',
+        message: 'Long-press near the left edge of a task to reorder it.',
+        duration: 4000,
+      });
+      localStorage.setItem('tasks:seen-reorder-hint', '1');
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [isMobile, virtualList, sortBy, active.length]);
 
   useEffect(() => {
     const row = titleRowRef.current;
