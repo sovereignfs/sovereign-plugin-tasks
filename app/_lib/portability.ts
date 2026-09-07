@@ -358,6 +358,19 @@ async function importTasksData(section: PluginExportSection, ctx: ImportContext)
 
 // ---- Delete ----
 
+/**
+ * Removes this user's Tasks data on account deletion (RFC 0033), and severs
+ * their attribution on other people's tasks (RFC 0097).
+ *
+ * `assignee_id` is nullable and, as of this version, unreachable in practice
+ * — v0.2 collaboration (`tasks_list_members`) hasn't shipped, so no action
+ * yet sets it to a user other than the list owner. SPEC.md already commits to
+ * severing on the *member-removal* trigger ("Removing a member auto-unassigns
+ * their tasks (`assignee_id` -> `null`)") once that ships; this does the same
+ * thing on the *account-deletion* trigger, so the convention is already in
+ * place — see RFC 0097 for why `null` and not a sentinel, and why severed
+ * rows count separately from `deleted`.
+ */
 async function deleteAllTasksData(ctx: DeletionContext): Promise<DeletionResult> {
   const db = ctx.db as Db;
   let deleted = 0;
@@ -429,5 +442,22 @@ async function deleteAllTasksData(ctx: DeletionContext): Promise<DeletionResult>
     );
   deleted += notifRows.length;
 
-  return { deleted };
+  // Everything above deletes tasksItems belonging to lists this user owned.
+  // What still matches assignee_id at this point is a task on someone else's
+  // list — RFC 0097's middle bucket: sever the attribution, keep the row.
+  const orphanedAssignments = await db
+    .select({ id: tasksItems.id })
+    .from(tasksItems)
+    .where(and(eq(tasksItems.tenantId, ctx.tenantId), eq(tasksItems.assigneeId, ctx.userId)));
+  if (orphanedAssignments.length > 0) {
+    await db
+      .update(tasksItems)
+      .set({ assigneeId: null })
+      .where(and(eq(tasksItems.tenantId, ctx.tenantId), eq(tasksItems.assigneeId, ctx.userId)));
+  }
+
+  // Severed rows are reported separately, never folded into deleted — they
+  // still exist, and deleted is the count an operator would cite to evidence
+  // an erasure request.
+  return { deleted, anonymized: orphanedAssignments.length };
 }

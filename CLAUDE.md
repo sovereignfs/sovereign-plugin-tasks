@@ -467,7 +467,18 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.24.2** (`0.24.1` → `0.24.2` is a self-directed mobile-UI
+Current version: **0.25.0** (bumped from whatever `manifest.json` had drifted to —
+this line has drifted from the real version before; check `manifest.json` first.
+`0.25.0` adds attribution-severing to `deleteAllTasksData` per platform RFC 0097:
+a task assigned to the deleted user on someone else's list keeps the task and has
+`assignee_id` set to `null` instead, counted in the new `DeletionResult.anonymized`
+rather than `deleted`. `assignee_id` was already nullable, so no migration —
+this is currently dead code in practice (v0.2 collaboration/`tasks_list_members`
+hasn't shipped, so no action sets `assignee_id` to another user yet) but SPEC.md
+already commits to identical null-out-on-departure behavior for the member-removal
+trigger, so the convention is in place before assignment ships rather than after.
+Two new regression tests in `portability.test.ts`, both confirmed to fail against
+the pre-fix handler. `0.24.1` → `0.24.2` is a self-directed mobile-UI
 review the developer asked for directly ("review it yourself and identify
 issues... gestures has some inconsistencies too"), fixing the three findings
 they asked to be fixed (in the order listed) and deliberately leaving a
