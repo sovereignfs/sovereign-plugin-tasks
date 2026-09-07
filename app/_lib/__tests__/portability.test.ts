@@ -1,6 +1,12 @@
 import { getTableName, type Table } from 'drizzle-orm';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { DeletionContext, ExportContext, ImportContext, PluginExportSection } from '@sovereignfs/sdk';
+import type {
+  DeletionContext,
+  DeletionResult,
+  ExportContext,
+  ImportContext,
+  PluginExportSection,
+} from '@sovereignfs/sdk';
 
 type Row = Record<string, unknown>;
 type Condition = { kind: 'eq'; key: string; value: unknown } | { kind: 'and'; conditions: Condition[] };
@@ -46,7 +52,7 @@ const capturedImporter = {
   fn: null as ((section: PluginExportSection, ctx: ImportContext) => Promise<void>) | null,
 };
 const capturedDeleter = {
-  fn: null as ((ctx: DeletionContext) => Promise<{ deleted: number; errors?: string[] }>) | null,
+  fn: null as ((ctx: DeletionContext) => Promise<DeletionResult>) | null,
 };
 
 vi.mock('@sovereignfs/sdk', () => ({
@@ -124,6 +130,20 @@ const fakeDb = {
     return {
       where: async (condition?: Condition) => {
         store[tableName] = (store[tableName] ?? []).filter((row) => !matches(row, condition));
+      },
+    };
+  },
+  update(table: Table) {
+    const tableName = getTableName(table);
+    return {
+      set(values: Row) {
+        return {
+          where: async (condition?: Condition) => {
+            for (const row of store[tableName] ?? []) {
+              if (matches(row, condition)) Object.assign(row, values);
+            }
+          },
+        };
       },
     };
   },
@@ -574,5 +594,41 @@ describe('portability delete', () => {
 
     const result = await capturedDeleter.fn?.({ userId: 'user-1', tenantId: 't1', db: fakeDb });
     expect(result?.deleted).toBe(0);
+  });
+
+  it("severs the user's assignment on another user's list instead of deleting the task (RFC 0097)", async () => {
+    const { registerPortabilityHandlers } = await import('../portability');
+    await registerPortabilityHandlers();
+
+    // list-9 belongs to user-9; user-1 was assigned two tasks on it.
+    store.tasks_lists = [{ id: 'list-9', tenantId: 't1', ownerId: 'user-9' }];
+    store.tasks_items = [
+      { id: 'item-assigned', tenantId: 't1', listId: 'list-9', assigneeId: 'user-1' },
+      // Untouched: someone else's assignment on the same list.
+      { id: 'item-other', tenantId: 't1', listId: 'list-9', assigneeId: 'user-9' },
+    ];
+
+    const result = await capturedDeleter.fn?.({ userId: 'user-1', tenantId: 't1', db: fakeDb });
+
+    // The task still exists — it belongs to user-9's list.
+    expect(store.tasks_items).toHaveLength(2);
+    expect(store.tasks_items.find((r) => r.id === 'item-assigned')?.assigneeId).toBeNull();
+    expect(store.tasks_items.find((r) => r.id === 'item-other')?.assigneeId).toBe('user-9');
+
+    // Severed, not deleted.
+    expect(result?.anonymized).toBe(1);
+    expect(result?.deleted).toBe(0);
+  });
+
+  it('does not sever an assignment belonging to another tenant', async () => {
+    const { registerPortabilityHandlers } = await import('../portability');
+    await registerPortabilityHandlers();
+
+    store.tasks_items = [{ id: 'item-t2', tenantId: 't2', listId: 'list-9', assigneeId: 'user-1' }];
+
+    const result = await capturedDeleter.fn?.({ userId: 'user-1', tenantId: 't1', db: fakeDb });
+
+    expect(store.tasks_items[0]?.assigneeId).toBe('user-1');
+    expect(result?.anonymized).toBe(0);
   });
 });

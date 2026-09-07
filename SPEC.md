@@ -117,6 +117,12 @@ Collaboration hard rules for the later sharing milestone:
   ownership or deleting the list.
 - Assignment targets must be current list members.
 - Removing a member auto-unassigns their tasks (`assignee_id` → `null`).
+- **Account deletion severs `assignee_id` the same way** (platform RFC 0097,
+  `app/_lib/portability.ts`'s `deleteAllTasksData`): a task on someone else's
+  list assigned to the departing user keeps the task and nulls the
+  attribution, counted in `DeletionResult.anonymized`. Implemented ahead of
+  this milestone shipping, since `assignee_id` is already nullable and the
+  handler already runs on every deletion.
 
 ## Functional requirements
 
