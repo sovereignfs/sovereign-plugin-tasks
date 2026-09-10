@@ -164,7 +164,12 @@ positioned floating handle that occupies no layout space until hovered.
 Every `DndContext` on the page needs an explicit `id` prop — without one,
 dnd-kit's auto-incrementing `aria-describedby` IDs aren't guaranteed to match
 between SSR and hydration when multiple `DndContext`s are mounted (which this
-plugin always has: one for lists, one for tasks).
+plugin always has: one for lists, one for tasks). Every `DndContext` also
+passes `autoScroll={REORDER_AUTO_SCROLL}` (`app/_lib/dndSensors.ts`) so
+dnd-kit's auto-scroller only ever nudges vertical scroll containers — without
+it, the mobile carousel's horizontal scroller is a qualifying ancestor and a
+touch reorder started from the left-gutter handle slides to the previous
+list mid-drag (see `0.25.1` under "Versioning").
 
 **Long-press/press-and-drag anywhere on the row lifts it** (v0.12, extended to
 desktop mouse in v0.12.2 — see below), not just the handle —
@@ -467,8 +472,45 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.25.0** (bumped from whatever `manifest.json` had drifted to —
+Current version: **0.25.1** (bumped from whatever `manifest.json` had drifted to —
 this line has drifted from the real version before; check `manifest.json` first.
+`0.25.0` → `0.25.1` fixes two mobile gesture bugs in the list columns, both
+reported with a real-iPhone screenshot showing the sticky list header pulled
+~80pt down with blank space above it after a finger scroll.
+(1) **Rubber-band still dragged the sticky header** — `0.20.1`'s Issue 7 fix
+used `overscroll-behavior-y: contain`, which only stops scroll *chaining*;
+WebKit's iOS implementation maps each axis straight onto the backing
+UIScrollView (`bouncesVertically = verticalOverscrollBehavior != None`), so
+`contain` keeps the element's own bounce and the header rides down with it.
+`TasksPane.module.css`'s `.pane` and `ListSidebar.module.css`'s `.nav` now
+use `overscroll-behavior-y: none` (per-axis, so the carousel's horizontal
+swipe is untouched) — the same value the platform shell's own mobile
+`.content` and `@sovereignfs/ui`'s `Dialog` already use for exactly this
+reason. **Correction, caught by a follow-up review**: the claim that
+`Sheet`/`Drawer`/`ScrollArea`'s `contain` (the model `0.20.1` copied) "was
+never protecting a sticky child" was wrong — `TaskDetailPane`'s own sticky
+`.top` header renders inside `Sheet`'s `.content` on mobile (see "Mobile
+shell" above), so `Sheet`'s `contain` value carried the identical latent
+bug, live, in this plugin, the whole time. Fixed upstream in
+`@sovereignfs/ui` (`Sheet.module.css`'s `.content`, `contain` → `none`,
+matching `Dialog`'s already-correct value and citing this exact
+`TaskDetailPane` case) — `@sovereignfs/ui` bumped `0.83.2` → `0.83.3`.
+`Drawer`/`ScrollArea` were left on `contain`; audit them the same way
+before assuming they're clean. Not reproducible in Chromium tooling; the
+CSS semantics and WebKit's mapping are the evidence.
+(2) **A touch reorder could auto-scroll the carousel** — dnd-kit's
+auto-scroller walks every scrollable ancestor outermost-first and
+`SwipableMobileCarousel`'s `.scroller` (`overflow-x: auto`) qualifies. With
+the default pointer activator and 20%-edge threshold, a touch reorder
+(startable only from the handle in the row's left gutter) begins with the
+finger already in the left zone; the first leftward wobble sets dnd-kit's
+sticky x-backward intent and the carousel gets `scrollBy`'d toward the
+previous list mid-drag, starving the list's own vertical auto-scroll. Both
+`DndContext`s now pass `autoScroll={REORDER_AUTO_SCROLL}`
+(`app/_lib/dndSensors.ts`), whose `canScroll` admits only vertical scroll
+containers plus the document's scrolling element; unit-tested in
+`dndSensors.test.ts`. See the Issue 7 follow-up in
+`docs/data-fetching-and-mobile-interaction-findings.md`.
 `0.25.0` adds attribution-severing to `deleteAllTasksData` per platform RFC 0097:
 a task assigned to the deleted user on someone else's list keeps the task and has
 `assignee_id` set to `null` instead, counted in the new `DeletionResult.anonymized`

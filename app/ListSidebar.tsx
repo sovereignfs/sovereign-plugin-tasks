@@ -26,7 +26,7 @@ import { createList, deleteList, reorderLists, updateList, updateListColor } fro
 import GripIcon from './_components/GripIcon';
 import NotificationSettings from './_components/NotificationSettings';
 import { LIST_SWATCHES, listDotColor } from './_lib/colors';
-import { useReorderSensors } from './_lib/dndSensors';
+import { REORDER_AUTO_SCROLL, useReorderSensors } from './_lib/dndSensors';
 import { useIsMobile } from './_lib/useIsMobile';
 import type { ListRow } from './_lib/types';
 import { STARRED_LIST_ID } from './_lib/virtualLists';
@@ -305,6 +305,7 @@ export default function ListSidebar({ lists: initialLists, starredCount }: Props
       <DndContext
         id="lists-dnd"
         sensors={sensors}
+        autoScroll={REORDER_AUTO_SCROLL}
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
       >

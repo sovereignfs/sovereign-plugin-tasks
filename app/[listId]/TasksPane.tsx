@@ -28,7 +28,7 @@ import {
 } from '../_lib/actions';
 import { isOverdue } from '../_lib/date';
 import { listDotColor } from '../_lib/colors';
-import { useReorderSensors } from '../_lib/dndSensors';
+import { REORDER_AUTO_SCROLL, useReorderSensors } from '../_lib/dndSensors';
 import { measureTextWidth } from '../_lib/measureText';
 import { SORT_OPTIONS, pinDueTodayAndOverdue, sortTasks, type SortBy } from '../_lib/sort';
 import { useIsMobile } from '../_lib/useIsMobile';
@@ -812,6 +812,7 @@ export default function TasksPane({
       <DndContext
         id="tasks-dnd"
         sensors={sensors}
+        autoScroll={REORDER_AUTO_SCROLL}
         collisionDetection={closestCenter}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}

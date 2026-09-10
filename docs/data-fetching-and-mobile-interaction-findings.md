@@ -569,6 +569,51 @@ itself isn't reproducible in this environment's Chromium-based tooling
 confirming the CSS rule is live is as far as this environment can verify;
 real-device confirmation is still outstanding.
 
+**Follow-up (real-device report):** the `contain` version did *not* fix the
+symptom on a real iPhone — a screenshot showed the sticky header pulled
+~80pt down with the rows, blank space above it. Root cause of the miss:
+`contain` and `none` differ in exactly the way that matters here. Both
+stop scroll *chaining* into ancestor scrollers, but only `none` also
+suppresses the element's own rubber-band. WebKit's iOS implementation
+(`ScrollingTreeScrollingNodeDelegateIOS.mm`) maps each axis straight onto
+the backing UIScrollView — `bouncesVertically = verticalOverscrollBehavior
+!= None` — so `contain` leaves the bounce on, and the sticky header rides
+down with the bounced content exactly as before. The platform shell's own
+mobile `.content` and `@sovereignfs/ui`'s `Dialog` already use `none` for
+this same reason. Both plugin containers (`.pane`, the Lists-index `.nav`)
+now use `overscroll-behavior-y: none` — per-axis so the carousel's
+horizontal swipe is untouched. The small dropdown menus keep `contain`
+(chaining is the only concern there).
+
+**Correction, caught by a follow-up review**: this entry originally claimed
+`Sheet`/`Drawer`/`ScrollArea`'s `contain` "was the wrong model to copy
+(they have no sticky child to protect)." That's false — `TaskDetailPane`'s
+own `position: sticky` `.top` header (`app/_components/TaskDetailPane.module.css`)
+renders inside `Sheet`'s `.content` on mobile (`MobileTasksCarousel.tsx`
+wraps `TaskDetailPane` in `Sheet`), so `Sheet`'s `contain` carried the
+identical bug — live, in this plugin — the whole time this doc claimed
+otherwise. Fixed upstream: `packages/ui/src/components/Sheet/Sheet.module.css`'s
+`.content` now uses `overscroll-behavior: none`, matching `Dialog`'s
+already-correct value, with a comment citing this exact `TaskDetailPane`
+case as the confirmed repro. `@sovereignfs/ui` bumped `0.83.2` → `0.83.3`.
+`Drawer`/`ScrollArea` are still on `contain` and were not audited for a
+sticky-child consumer as part of this fix — don't assume they're clean.
+
+Found while chasing the same report: dnd-kit's auto-scroller could hijack
+the carousel during a touch reorder. It walks every scrollable ancestor of
+the dragged row outermost-first, and `SwipableMobileCarousel`'s
+`.scroller` (`overflow-x: auto`) qualifies. With the default pointer
+activator and 20%-edge threshold, a touch reorder — startable only from
+the drag handle in the row's left gutter — begins with the finger already
+inside the left zone; the first leftward wobble sets dnd-kit's sticky
+x-backward scroll intent and the carousel gets `scrollBy`'d toward the
+previous list mid-drag (and while it scrolls, the list's own vertical
+auto-scroll never runs). Both `DndContext`s now pass a shared
+`autoScroll={REORDER_AUTO_SCROLL}` (`app/_lib/dndSensors.ts`) whose
+`canScroll` admits only vertical scroll containers (plus the document's
+scrolling element). Unit-tested in `dndSensors.test.ts`; not reproducible
+in the browser preview (no horizontal touch-reorder path there).
+
 ---
 
 ### Issue 8 — Every list's tasks are eagerly fetched on every page load, not just the active one
