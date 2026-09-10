@@ -1,4 +1,5 @@
 import {
+  type AutoScrollOptions,
   KeyboardSensor,
   MouseSensor as LibMouseSensor,
   TouchSensor as LibTouchSensor,
@@ -57,6 +58,40 @@ class TouchSensor extends LibTouchSensor {
     },
   ];
 }
+
+/**
+ * True when `element` is a scroll container along the vertical axis — the
+ * only kind of ancestor a reorder drag in this plugin should ever
+ * auto-scroll. Exported standalone so it's unit-testable without dnd-kit.
+ */
+export function isVerticalScrollContainer(element: Element): boolean {
+  if (element === element.ownerDocument.scrollingElement) return true;
+  const { overflowY } = getComputedStyle(element);
+  return overflowY === 'auto' || overflowY === 'scroll' || overflowY === 'overlay';
+}
+
+/**
+ * `autoScroll` prop for both DndContexts in this plugin (task rows, list
+ * rows). dnd-kit's auto-scroller walks *every* scrollable ancestor of the
+ * dragged row and nudges whichever one the pointer is near an edge of — and
+ * on mobile that set includes the carousel's own horizontal scroll-snap
+ * container (`.scroller` in @sovereignfs/ui's SwipableMobileCarousel,
+ * `overflow-x: auto`), tried *before* the list's own vertical scroller since
+ * ancestors are visited outermost-first. The default activator is the
+ * pointer position, and the default threshold is the outer 20% of the
+ * container on each side, so a touch reorder — which can only be started
+ * from the drag handle in the row's left gutter (TaskItem.tsx) — begins
+ * with the finger already inside that left zone. The moment the finger
+ * wobbles a pixel leftward (dnd-kit's scroll intent is sticky for the rest
+ * of the drag), the carousel gets `scrollBy`'d toward the previous list
+ * mid-drag, and while it's scrolling the list's own vertical auto-scroll
+ * never runs at all (the first container with any speed wins). Both lists
+ * here are strictly vertical, so restrict auto-scroll to vertical scroll
+ * containers; the document's scrolling element stays allowed for desktop.
+ */
+export const REORDER_AUTO_SCROLL: AutoScrollOptions = {
+  canScroll: isVerticalScrollContainer,
+};
 
 /**
  * Shared sensor set for both reorderable lists in this plugin (task rows,

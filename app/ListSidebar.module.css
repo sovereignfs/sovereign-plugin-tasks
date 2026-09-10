@@ -239,10 +239,10 @@
   .nav {
     height: 100%;
     overflow-y: auto;
-    /* Contains this scroll container's own elastic overscroll bounce — same
-       reasoning and treatment as TasksPane.module.css's .pane (see that
-       rule's own comment). */
-    overscroll-behavior-y: contain;
+    /* Suppresses this scroll container's own elastic overscroll bounce —
+       same reasoning and treatment as TasksPane.module.css's .pane (see
+       that rule's own comment for why this must be `none`, not `contain`). */
+    overscroll-behavior-y: none;
   }
 }
 

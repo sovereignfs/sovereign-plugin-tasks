@@ -13,16 +13,26 @@
      way TaskDetailPane's .top does). */
   padding: 0 0 var(--sv-space-6);
   overflow-y: auto;
-  /* Contains this scroll container's own elastic overscroll bounce so it
+  /* Suppresses this scroll container's own elastic overscroll bounce so it
      can't visually drag .stickyHeader (below) down with it, exposing blank
-     space above the header, when a user scrolls up past scrollTop: 0. The
+     space above the header, when a user pulls down past scrollTop: 0. The
      platform shell's own overscroll-behavior: none on html/body only kills
      the *document's* bounce — WebKit applies elastic overscroll
-     independently to every scrollable element, so this inner box still
-     needs its own containment. Matches the same treatment
-     @sovereignfs/ui's own internally-scrolling components (Sheet, Drawer,
-     ScrollArea, MessageScroller) already give themselves. */
-  overscroll-behavior-y: contain;
+     independently to every scrollable element, so this inner box needs its
+     own value.
+     `none`, not `contain`: the two differ in exactly the way that matters
+     here. Both stop scroll *chaining* into the ancestor scrollers, but only
+     `none` also disables the element's own rubber-band — WebKit's iOS
+     implementation maps each axis straight onto the backing UIScrollView
+     (bouncesVertically = verticalOverscrollBehavior != None), so `contain`
+     keeps the bounce, and with it the sticky header riding down along with
+     the bounced content. A first version of this fix shipped `contain`
+     (matching Sheet/Drawer/ScrollArea, which have no sticky child to
+     protect) and was confirmed on a real iPhone to still show the gap — the
+     platform shell's own mobile .content and Dialog use `none` for this
+     same reason. Per-axis (-y only) so the carousel's horizontal
+     swipe-between-lists (the ancestor .scroller) is untouched. */
+  overscroll-behavior-y: none;
 }
 
 /* Pins .header + .addRow to the top of .pane while the task list scrolls
