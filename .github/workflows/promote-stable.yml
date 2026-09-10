@@ -1,0 +1,25 @@
+name: Promote to stable
+
+# Deliberately manual: `stable` never moves on its own. Run this workflow
+# (Actions tab → "Promote to stable" → Run workflow) and name a tag once
+# you're confident it's solid.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to promote (e.g. v1.4.2)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.tag }}
+      - name: Force-update stable branch to the given tag
+        run: git push origin "${GITHUB_SHA}:refs/heads/stable" --force

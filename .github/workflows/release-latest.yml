@@ -1,0 +1,20 @@
+name: Update latest branch
+
+# Moves `latest` to the commit of every vX.Y.Z tag pushed, automatically and
+# with no review gate — see docs/plugin-development.md's "Release automation"
+# section in the Sovereign monorepo.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  update-latest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Force-update latest branch to this tag
+        run: git push origin "${GITHUB_SHA}:refs/heads/latest" --force
