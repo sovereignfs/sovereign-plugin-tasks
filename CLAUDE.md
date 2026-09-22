@@ -464,6 +464,58 @@ server-rendered output) at all.
   fold and clipped by the shell's own `overflow: hidden`, invisible rather
   than just misplaced (a real bug hit and fixed while building this).
 
+## Today's Agenda (v0.15, TSK-30)
+
+`/tasks/today` (`app/today/page.tsx`) — a swipeable triage stack over
+`@sovereignfs/ui`'s `SwipeStack`, reached from the mobile footer's right
+icon (which this feature took over from Search — see "Self-rendered mobile
+footer" above) and from the due-reminders morning digest notification.
+Static segment, same trick as `starred/`/`search/`: it beats `[listId]`'s
+dynamic match, and both `MobileTasksCarousel`'s `isCarouselRoute` and
+`DesktopTasksShell`'s `activeListIdForPathname` already fall through to
+rendering a non-list route's own page output (built for `/tasks/search`),
+so this page works on both shells with zero routing changes anywhere else.
+
+- **Candidate set**: `getAgendaTasks()` (`_lib/actions.ts`) returns every
+  top-level, incomplete task across every list the user owns with a due
+  date OR the starred flag set — same shape/decoration as
+  `getStarredTasks()` (listTitle/listColor, subtask counts). No date cutoff
+  server-side.
+- **Classification is client-side, on purpose** (`_lib/agenda.ts`,
+  `classifyAgendaTask`/`buildAgenda`): overdue / due-today / starred are
+  decided against the *browser's own local calendar day*
+  (`date.ts`'s `todayISO()`), not a server-computed cutoff — this view
+  renders live in the viewer's own browser, unlike `due-reminders.ts`'s
+  scheduled job (which is exactly the case `tz.ts`'s stored-timezone math
+  exists for). Precedence overdue > dueToday > starred — a task matching
+  more than one bucket still gets exactly one card. Both functions take
+  `today` as an explicit parameter rather than reading the clock
+  internally, so they're unit-tested with no fake-timer setup
+  (`_lib/__tests__/agenda.test.ts`), matching `notify.ts`'s
+  fully-parametrized `isDigestDue`.
+- **Swipe → action mapping** (`TodayAgendaView.tsx`): Up = Done
+  (`toggleComplete`, unmodified — a recurring task still spawns its next
+  occurrence); Down = Cancel (`deleteTask`, immediate, no confirmation —
+  `SwipeStack`'s fling-out animation has already committed by the time
+  `onSwipe` fires, so there's no point in the gesture where a dialog could
+  interpose, unlike `TaskItem`'s own swipe-to-reveal Delete); Left = Snooze
+  (`setDueDate` to tomorrow, scope `'this'` — never the whole recurring
+  series); Right = Keep (`setDueDate` to today, scope `'this'` — bumps an
+  overdue task off overdue, and gives a starred-no-due-date task one). A
+  failed action shows an error toast (`useToast`, already provider-mounted
+  at the platform shell root) rather than trying to restore the
+  already-dismissed card — `SwipeStack` has no rollback mechanism by
+  design.
+- **No cross-page refetch needed**: the stack is classified once at mount
+  from server-fetched props; `SwipeStack` owns removing cards from view
+  itself. `router.refresh()` after each swipe exists only so *other*
+  already-cached views (list panes, sidebar counts) pick up the mutation
+  next time they render — this page's own stack never needs to shrink via
+  a round trip.
+- **Accepted tradeoff**: mobile no longer has a dedicated one-tap Search
+  entry point (the footer's right icon now opens this instead) —
+  `/tasks/search` still works, just isn't linked from the footer.
+
 ## Versioning
 
 This plugin follows its own semver, independent of the platform version:
@@ -472,8 +524,14 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.25.1** (bumped from whatever `manifest.json` had drifted to —
+Current version: **0.26.0** (bumped from whatever `manifest.json` had drifted to —
 this line has drifted from the real version before; check `manifest.json` first.
+`0.25.1` → `0.26.0` ships Today's Agenda (TSK-30, `feat/` → minor) — see the
+"Today's Agenda" section above for the full design; in one line, a
+`SwipeStack`-based triage view at `/tasks/today` (Up=Done, Down=Cancel,
+Left=Snooze, Right=Keep) over due-today/overdue/starred tasks, replacing
+Search on the mobile footer's right icon and as the due-reminders morning
+digest's deep-link target (was bare `/tasks`).
 `0.25.0` → `0.25.1` fixes two mobile gesture bugs in the list columns, both
 reported with a real-iPhone screenshot showing the sticky list header pulled
 ~80pt down with blank space above it after a finger scroll.

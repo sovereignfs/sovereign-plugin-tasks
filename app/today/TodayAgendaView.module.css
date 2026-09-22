@@ -1,0 +1,31 @@
+.wrap {
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: var(--sv-space-4) var(--sv-space-4) var(--sv-space-6);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sv-space-2);
+  margin-bottom: var(--sv-space-3);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--sv-font-size-lg);
+  font-weight: 600;
+  color: var(--sv-color-text-primary);
+}
+
+.count {
+  color: var(--sv-color-text-subtle);
+  font-size: var(--sv-font-size-sm);
+}
+
+.stack {
+  flex: 1;
+  min-height: 0;
+}

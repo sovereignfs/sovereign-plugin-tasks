@@ -44,6 +44,7 @@ completing this milestone.
 | TSK-27 | Move a single task to a different list from the detail pane (added ahead of phasing; distinct from TSK-21's bulk move) | ✅ |
 | TSK-28 | Virtual "Starred" list — aggregates every starred task across lists in one pinned view (added ahead of phasing; builds on TSK-26) | ✅ |
 | TSK-29 | Account-level data portability — export/import (sv-RFC 0007) and deletion (sv-RFC 0033) via Account → Export/Import my data, no plugin-local UI (added ahead of phasing) | ✅ |
+| TSK-30 | Today's Agenda — swipeable triage view (mobile-first) over due-today/overdue/starred tasks (added ahead of phasing) | ✅ |
 
 Keyboard shortcuts (scoped to the task-list pane, skipped while typing in a
 field): `n` focuses the add-task input, `j`/`k` (or Up/Down) move a keyboard
@@ -154,6 +155,22 @@ between a task row and the pane established its own stacking context — the
 tie resolved by DOM order, letting scrolled task rows paint over the
 "pinned" header instead of stopping underneath it. Fixed by giving the
 sticky header `z-index: 2`.
+
+## Today's Agenda (TSK-30)
+
+Shipped ahead of v1.0. A swipeable, mobile-first triage view at
+`/tasks/today` over every top-level, incomplete task due today, overdue, or
+starred — built on `@sovereignfs/ui`'s `SwipeStack` compound component. One
+card at a time: left snoozes to tomorrow, right keeps it for today (bumping
+an overdue task's due date to today), up marks it done (a recurring task
+still spawns its next occurrence), down cancels it (deletes outright, with
+no confirmation — `SwipeStack`'s exit animation has already committed by
+the time the app hears about it). Reached from the mobile footer's right
+icon, which this feature took over from Search (an accepted tradeoff —
+`/tasks/search` still works, just isn't linked from the footer anymore),
+and from the due-reminders morning digest notification, which now deep-links
+here instead of bare `/tasks`. See `CLAUDE.md`'s "Today's Agenda" section
+for the full design.
 
 ## v1.0 — Polish and reference implementation
 

@@ -1,0 +1,68 @@
+.card {
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  padding: var(--sv-space-6);
+  border-radius: var(--sv-radius-lg);
+  background: var(--sv-color-surface-raised);
+  border: 1px solid var(--sv-color-border);
+  overflow: hidden;
+}
+
+.reasonRow {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sv-space-1);
+  align-self: flex-start;
+  padding: var(--sv-space-1) var(--sv-space-2);
+  border-radius: var(--sv-radius-sm);
+  background: var(--sv-color-surface);
+  color: var(--sv-color-text-subtle);
+  font-size: var(--sv-font-size-xs);
+  font-weight: 600;
+}
+
+.reasonOverdue {
+  color: var(--sv-color-error-text);
+}
+
+.title {
+  margin: var(--sv-space-4) 0 0;
+  font-size: var(--sv-font-size-xl);
+  font-weight: 600;
+  color: var(--sv-color-text-primary);
+}
+
+.notes {
+  margin: var(--sv-space-2) 0 0;
+  color: var(--sv-color-text-subtle);
+  font-size: var(--sv-font-size-sm);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+}
+
+.listBadge {
+  margin-top: auto;
+  padding-top: var(--sv-space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--sv-space-2);
+  color: var(--sv-color-text-subtle);
+  font-size: var(--sv-font-size-sm);
+}
+
+.listDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.subtaskCount {
+  margin-top: var(--sv-space-2);
+  color: var(--sv-color-text-subtle);
+  font-size: var(--sv-font-size-xs);
+}

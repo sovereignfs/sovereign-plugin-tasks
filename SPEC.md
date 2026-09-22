@@ -171,6 +171,7 @@ selection surface. Do not call Console/admin user routes.
 | TSK-27 | Move a single task to a different list from the detail pane's List field. Subtasks move with their parent. Added ahead of phasing — distinct from TSK-21's bulk move. |
 | TSK-28 | A virtual "Starred" list, pinned first on the lists surface, aggregating every starred task across the user's lists in one view (sorted by due date). Not a real list — owns no `tasks_lists` row and no tasks; each task always remains in (and displays) its source list. No add-task, drag-reorder, rename/colour/delete, or bulk select in this view. Added ahead of phasing; builds on TSK-26. |
 | TSK-29 | Account-level data portability (sv-RFC 0007 export/import, sv-RFC 0033 deletion) — no plugin-local UI; reached from Account → Export/Import my data. Export includes owned lists, items, views, and prefs; import is additive and remaps every plugin-owned id; deletion removes everything the user owns. Added ahead of phasing. |
+| TSK-30 | **Today's Agenda** — a swipeable triage view (mobile-first) at `/tasks/today` over every top-level, incomplete task that's due today, overdue, or starred. Left = snooze to tomorrow; right = keep for today (bumps an overdue task's due date to today); up = done; down = cancel (delete). Reached from the mobile footer's right icon (replacing Search) and from the due-reminders morning digest notification. Added ahead of phasing. |
 
 ### v0.4 — Recurrence
 
@@ -415,6 +416,13 @@ every breakpoint. See `CLAUDE.md`'s "Mobile shell" section for the
 implementation model (why the carousel manages its own data independently of
 `page.tsx`'s server fetch, and how `router.refresh()` still reaches it).
 
+**Today's Agenda (TSK-30, `/tasks/today`):** a swipeable triage view built on
+`@sovereignfs/ui`'s `SwipeStack` — one card at a time for every due-today,
+overdue, or starred task, dragged (or tapped via always-visible fallback
+buttons) in one of four directions. Reached from the mobile footer's right
+icon (taking over Search's old slot) and the due-reminders morning digest
+notification. See `CLAUDE.md`'s "Today's Agenda" section for the full design.
+
 **Views:** v0.1 renders the **Compact** view only (`kind: "compact"`) — a focused
 linear list. The data model reserves saved view metadata for three later variants:
 **Kanban Compact** (`kanban_compact`), **Kanban** (`kanban`), and **Visualizer**
@@ -522,6 +530,7 @@ external plugin developers.
 
 | Version | Date     | Change                                                                              |
 | ------- | -------- | ----------------------------------------------------------------------------------- |
+| 0.7     | Sep 2026 | Today's Agenda (TSK-30, added ahead of phasing) — a `SwipeStack`-based swipeable triage view at `/tasks/today` over due-today/overdue/starred tasks (snooze/keep/done/cancel), reached from the mobile footer's right icon (replacing Search) and the due-reminders morning digest notification. |
 | 0.6     | Jul 2026 | Recurrence (TSK-22–25) shipped ahead of the roadmap's own ordering — daily/weekly/monthly/yearly/every-N/specific-weekdays patterns (matching Google Tasks' picker; "nth day of month" deferred), generate-next-instance on completion, a three-way edit-scope prompt (this/future/all) gated to title/notes/due-date/recurrence-rule, and a human-readable pattern shown in both the detail pane and a row icon. |
 | 0.5     | Jul 2026 | Detail-pane polish: custom `CalendarGrid` due-date picker (replacing the native date input), a List field to move a task to a different list (TSK-27), boxed subtask cards with a count label, delete-task confirmation styling. Sidebar drag-reorder for lists, floating (non-reserved-gutter) drag handles replacing `DragHandleRow` in both the sidebar and task rows, and a fix for `@dnd-kit`'s `DndContext` SSR/hydration ID mismatch (explicit `id` prop on both contexts). |
 | 0.4     | Jul 2026 | Three-column web home (lists · tasks · detail); due dates, filters, cross-list search, and a `favorite` column landed ahead of the original phasing. Collaboration and recurrence remain deferred. |
