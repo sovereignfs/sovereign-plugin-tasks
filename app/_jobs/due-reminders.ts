@@ -97,7 +97,11 @@ async function sendMorningDigest(
   if (summary === null) return; // nothing due — claim still consumed, quiet day
 
   await sdk.notifications.send(
-    { recipientUserId: pref.userId, title: summary, url: '/tasks' },
+    // Deep-links into Today's Agenda (TSK-30) rather than bare /tasks —
+    // this notification is itself a summary of exactly the due-today/
+    // overdue tasks that view surfaces, so it should land the user right on
+    // the swipeable triage stack, not the lists index.
+    { recipientUserId: pref.userId, title: summary, url: '/tasks/today' },
     ctx.headers,
   );
 }

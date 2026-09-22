@@ -1,7 +1,7 @@
 'use server';
 
 import { sdk } from '@sovereignfs/sdk';
-import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, like, or } from 'drizzle-orm';
 import type { BaseSQLiteDatabase } from 'drizzle-orm/sqlite-core';
 import { randomUUID } from 'node:crypto';
 import {
@@ -339,6 +339,72 @@ export async function getStarredTasks() {
 export async function countStarredTasks() {
   const tasks = await getStarredTasks();
   return tasks.filter((t) => t.completedAt === null).length;
+}
+
+/**
+ * Every top-level, incomplete task across every list the user owns that
+ * either has a due date or is starred — candidates for Today's Agenda
+ * (TSK-30). Same decoration (listTitle/listColor) and subtask-count
+ * aggregation as getStarredTasks(); no date-based filtering here — deciding
+ * overdue/due-today/starred-only happens client-side in app/_lib/agenda.ts,
+ * against the viewer's own local calendar day (see that file's own doc
+ * comment for why a server-computed cutoff would be wrong here).
+ */
+export async function getAgendaTasks() {
+  const { db, userId, tenantId } = await getContext();
+
+  const lists = await db
+    .select({ id: tasksLists.id, title: tasksLists.title, color: tasksLists.color })
+    .from(tasksLists)
+    .where(and(eq(tasksLists.tenantId, tenantId), eq(tasksLists.ownerId, userId)));
+  if (lists.length === 0) return [];
+  const listMap = new Map(lists.map((l) => [l.id, l]));
+  const listIds = [...listMap.keys()];
+
+  const [top, subs] = await Promise.all([
+    db
+      .select()
+      .from(tasksItems)
+      .where(
+        and(
+          eq(tasksItems.tenantId, tenantId),
+          isNull(tasksItems.parentId),
+          isNull(tasksItems.completedAt),
+          inArray(tasksItems.listId, listIds),
+          or(isNotNull(tasksItems.dueDate), eq(tasksItems.favorite, true)),
+        ),
+      ),
+    db
+      .select({ parentId: tasksItems.parentId, completedAt: tasksItems.completedAt })
+      .from(tasksItems)
+      .where(
+        and(
+          eq(tasksItems.tenantId, tenantId),
+          isNotNull(tasksItems.parentId),
+          inArray(tasksItems.listId, listIds),
+        ),
+      ),
+  ]);
+
+  const counts = new Map<string, { total: number; done: number }>();
+  for (const s of subs) {
+    if (!s.parentId) continue;
+    const c = counts.get(s.parentId) ?? { total: 0, done: 0 };
+    c.total += 1;
+    if (s.completedAt !== null) c.done += 1;
+    counts.set(s.parentId, c);
+  }
+
+  return top.map((t) => {
+    const list = listMap.get(t.listId);
+    return {
+      ...t,
+      subtaskCount: counts.get(t.id)?.total ?? 0,
+      subtaskDoneCount: counts.get(t.id)?.done ?? 0,
+      listTitle: list?.title ?? '',
+      listColor: list?.color ?? null,
+    };
+  });
 }
 
 export async function getTask(taskId: string) {

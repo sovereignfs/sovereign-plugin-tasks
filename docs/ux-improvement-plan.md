@@ -22,6 +22,7 @@ same surfaces in the same repo. Add new tasks as numbered sections; statuses:
 | 11  | Tighten `SwipableMobileCarouselDots` spacing for many-list instances      | **platform** (`sovereignfs/sovereign`) + sovereign-tasks | shipped ✅                                                        |
 | 12  | Fix invisible carousel dots; investigate swipe instability + header load  | **platform** (`sovereignfs/sovereign`)                   | shipped ✅ (dots) + drag-vs-swipe conflict still open — see below |
 | 13  | Fix carousel auto-swiping back to the previous slide                      | **platform** (`sovereignfs/sovereign`)                   | shipped ✅, regression found + corrected — see below              |
+| 14  | Today's Agenda — swipeable triage view (`SwipeStack`)                     | sovereign-tasks                                          | shipped ✅                                                        |
 
 ---
 
@@ -1460,5 +1461,153 @@ reproduce-then-fix-then-reproduce-again cycle. Worth the user re-testing
 directly rather than assuming closed. No files changed in this plugin's
 repo.
 
-<!-- Add Task 14, … above this line as new numbered sections, and keep the
+## Task 14 — Today's Agenda (swipeable triage view)
+
+**Status:** shipped ✅ — implemented on `feat/today-agenda-view`, assigned
+requirement id **TSK-30**.
+**Repo:** sovereign-tasks. Branch type: `feat/` (minor bump, `0.25.1` →
+`0.26.0`).
+
+### Problem
+
+Due/overdue notifications (v0.11) tell a user what needs attention today,
+but landed them on bare `/tasks` — the Lists index — with no focused way to
+work through exactly those tasks one at a time. Separately, the mobile
+footer's right icon (Search) was judged less valuable than a fast daily
+triage flow for the primary "what do I do today" use case this plugin
+exists for.
+
+### Design decisions (asked directly, no strong existing precedent to infer from)
+
+1. **"Tasks started" → reuse starred tasks (TSK-26/28), no schema change.**
+   The agenda has no independent "in progress"/start-date concept — it
+   surfaces due-today, overdue, and starred tasks. Simpler, and reuses the
+   existing `favorite` column and `getStarredTasks()`-style query instead of
+   a new migration.
+2. **Down-swipe ("Cancel") deletes the task outright**, immediately, with no
+   confirmation step. `SwipeStack`'s own contract (`packages/ui`) has
+   already started the fling-out animation by the time `onSwipe` fires —
+   there is no point in the gesture where a `ConfirmDialog` could interpose
+   the way `TaskItem`'s own swipe-to-reveal Delete does. Accepted as a
+   deliberate, irreversible-by-design tradeoff for this view.
+3. **Right-swipe ("Keep") bumps the due date to today**, clearing overdue
+   status rather than merely dismissing the card while leaving the
+   underlying task still overdue. Also promotes a starred-but-undated task
+   to a due-today task — one rule covers both cases.
+4. **Search drops out of the mobile footer entirely**, no replacement entry
+   point added. `/tasks/search` still works by direct navigation; mobile
+   users lose a dedicated one-tap search affordance for now.
+
+### Current state (verified)
+
+- `SwipeStack`/`SwipeStackCard`/`useSwipeStack` already ship in
+  `@sovereignfs/ui` — a 4-direction drag compound component with per-
+  direction label/icon, always-visible non-gesture fallback buttons, and an
+  `onSwipe(direction, cardId)` callback. Its own Storybook demo
+  (`SwipeStack.stories.tsx`) is literally a "Today's agenda" mock, i.e. this
+  is closer to completing an already-intended use case than inventing a new
+  one.
+- `manifest.json` already sets `shellConfig.mobileFooter: false` —
+  `MobileTasksCarousel.tsx` self-renders its own `MobileFooter`
+  (Lists/Apps/Search), so repurposing the right icon is entirely
+  plugin-local; no platform (`sovereignfs/sovereign`) change is needed.
+  Confirmed both `MobileTasksCarousel`'s `isCarouselRoute` and
+  `DesktopTasksShell`'s `activeListIdForPathname` already fall through to
+  rendering a non-list route's own page output for anything they don't
+  recognize (built for `/tasks/search`) — so a new static `app/today/`
+  segment needed zero routing-logic changes on either shell.
+- `getStarredTasks()` (`_lib/actions.ts`) was the direct model for the new
+  candidate query: same list-decoration (`listTitle`/`listColor`) and
+  subtask-count aggregation pattern.
+- `date.ts`'s `isOverdue`/`todayISO()` are documented as client-computed on
+  purpose (avoiding server/client timezone-hydration mismatches) — the
+  right tool for classifying "today" live in the viewer's browser, as
+  opposed to `tz.ts`'s stored-IANA-timezone math, which is for
+  `due-reminders.ts`'s scheduled job specifically.
+
+### Design (implemented)
+
+- **`getAgendaTasks()`** (`_lib/actions.ts`, new): every top-level,
+  incomplete task across every list the user owns with a due date OR
+  `favorite = true`. No date cutoff server-side — classification happens
+  client-side.
+- **`app/_lib/agenda.ts`** (new, pure, unit-tested): `classifyAgendaTask(task,
+  today)` returns `'overdue' | 'dueToday' | 'starred' | null` (precedence
+  overdue > dueToday > starred); `buildAgenda(tasks, today)` classifies,
+  drops non-matches, and sorts (overdue by oldest due date, due-today by
+  due time, starred-only by title). Both take `today` as an explicit
+  parameter — no internal clock read — matching `notify.ts`'s
+  `isDigestDue` convention, so tests need no fake-timer setup.
+- **`app/today/page.tsx`** (new): server component, static segment (beats
+  `[listId]`'s dynamic match, same trick as `starred/`/`search/`). Fetches
+  `getAgendaTasks()`, hands off to the client view.
+- **`app/today/TodayAgendaView.tsx`** (new, client): classifies once at
+  mount (`buildAgenda(tasks, todayISO())`); renders `EmptyState` ("All
+  caught up") when nothing qualifies, otherwise a `SwipeStack` with one
+  `SwipeStackCard` per task. `onSwipe` dispatches to the existing action
+  for that direction (`toggleComplete`/`deleteTask`/`setDueDate` ×2, all
+  pre-existing, none modified) and calls `router.refresh()` afterward so
+  *other* already-cached views (list panes, sidebar counts) pick up the
+  mutation next time they render — this page's own stack never needs to
+  shrink via a round trip, since `SwipeStack` already owns removing a
+  dismissed card from view. A failed action shows an error toast
+  (`useToast`, already provider-mounted at the platform shell root) rather
+  than attempting to restore an already-dismissed card.
+- **`app/_components/AgendaCard.tsx`** (new): presentational card — title,
+  a reason badge ("Overdue · {date}" / "Due today · {time}" / "★ Starred"),
+  notes preview, source-list colour dot + name, subtask count. No
+  interaction of its own (no tap-to-detail in this pass — noted as a
+  follow-up, not required for v1).
+- **`MobileTasksCarousel.tsx`**: footer `rightIcons` swapped from Search
+  (`icon="search"` → `/tasks/search`) to Today (`icon="calendar"` →
+  `/tasks/today`, active when `pathname === '/tasks/today'`).
+- **`due-reminders.ts`**: the morning digest's notification `url` changed
+  from `/tasks` to `/tasks/today`. The per-task due-time reminder keeps
+  linking straight to that task's own detail (`/tasks/<listId>?task=<id>`)
+  — a judgment call, not re-litigated here: it's about one concrete task,
+  and a full triage stack for a single notification seemed like more
+  friction, not less.
+
+### Files
+
+| File                                               | Change                                                                          |
+| --------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `app/_lib/agenda.ts` (new)                          | `classifyAgendaTask`, `buildAgenda`, `AgendaReason`/`AgendaEntry`                |
+| `app/_lib/__tests__/agenda.test.ts` (new)           | classification precedence, sort order per bucket, empty-stack case               |
+| `app/_lib/actions.ts`                               | `getAgendaTasks()`                                                               |
+| `app/today/page.tsx` (new)                          | server route, static segment                                                     |
+| `app/today/TodayAgendaView.tsx` (new)               | `SwipeStack` wiring, swipe → action dispatch, empty state                        |
+| `app/today/TodayAgendaView.module.css` (new)        | page header/stack layout                                                         |
+| `app/_components/AgendaCard.tsx` + `.module.css` (new) | presentational card                                                           |
+| `app/_components/MobileTasksCarousel.tsx`           | footer `rightIcons`: Search → Today                                              |
+| `app/_jobs/due-reminders.ts`                        | morning digest `url` → `/tasks/today`                                           |
+| `manifest.json`                                     | `0.25.1` → `0.26.0`                                                              |
+| `CLAUDE.md`                                         | new "Today's Agenda" section; "Current version" line updated                    |
+| `SPEC.md`, `roadmap.md`                             | TSK-30 requirement + UI-rules note                                              |
+
+### Verification
+
+1. `pnpm dev`, mobile viewport: create tasks due today, overdue, and starred
+   (with no due date) across two lists. Tap the footer's right ("Today")
+   icon → lands on `/tasks/today` showing one card at a time, overdue
+   first, then due-today, then starred-only.
+2. Drag (or use the fallback buttons) in each direction: Up removes the
+   card and the task shows completed in its list (a recurring task's next
+   occurrence appears there too); Down removes the card and the task is
+   gone from its list entirely; Left removes the card and the task's due
+   date is now tomorrow; Right removes the card and an overdue task's due
+   date is now today (no longer overdue in its list view).
+3. Trigger (or wait for) the due-reminders morning digest notification →
+   tapping it opens `/tasks/today` directly.
+4. Confirm `/tasks/search` still works when navigated to directly, even
+   though the footer no longer links to it.
+5. Empty case: complete/dismiss everything qualifying → `/tasks/today`
+   shows the "All caught up" empty state, not a blank stack.
+6. Desktop: navigate to `/tasks/today` directly (e.g. via the digest link)
+   → renders in the three-column shell's main slot, same page/component,
+   no desktop-specific code path.
+7. `pnpm format:check && pnpm lint && pnpm typecheck && pnpm test`; version
+   bump; draft PR.
+
+<!-- Add Task 15, … above this line as new numbered sections, and keep the
      index table at the top in sync. -->

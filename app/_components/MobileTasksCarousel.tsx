@@ -416,15 +416,19 @@ export default function MobileTasksCarousel({
           "external navigation" path a dot-indicator jump uses — not a
           navigation to bare /tasks, which already has its own, different
           meaning (cold-load → first list, see indexForPathname above).
-          Center Apps button and right Search icon mirror the platform
-          shell's own MobileNav convention, just plugin-local: the apps list
-          comes from layout.tsx's sdk.plugins.list() call (this component
-          can't call it itself — that SDK method needs next/headers), and
-          Search routes to this plugin's own /tasks/search rather than the
-          platform's instance-wide search overlay, which isn't exposed to
-          plugins. The center button uses the Launcher's own icon (same as
-          the platform shell's MobileNav) rather than the generic default,
-          so the two footers read as identical, not just similar. */}
+          Center Apps button mirrors the platform shell's own MobileNav
+          convention, just plugin-local: the apps list comes from
+          layout.tsx's sdk.plugins.list() call (this component can't call it
+          itself — that SDK method needs next/headers). The center button
+          uses the Launcher's own icon (same as the platform shell's
+          MobileNav) rather than the generic default, so the two footers
+          read as identical, not just similar.
+
+          Right icon opens Today's Agenda (TSK-30) at /tasks/today — this
+          took over Search's old slot (a deliberate, accepted tradeoff:
+          mobile loses a dedicated one-tap search entry point; /tasks/search
+          is still reachable by direct navigation, just not from this
+          footer). */}
       {/* MobileFooter itself isn't a forwardRef component, so the ref used
           to measure its real rendered height (see footerRef's own doc
           comment above) lives on this plain wrapper instead. */}
@@ -447,10 +451,10 @@ export default function MobileTasksCarousel({
           ]}
           rightIcons={[
             {
-              icon: <Icon name="search" size="md" aria-hidden />,
-              label: 'Search',
-              active: pathname === '/tasks/search',
-              onClick: () => router.push('/tasks/search'),
+              icon: <Icon name="calendar" size="md" aria-hidden />,
+              label: 'Today',
+              active: pathname === '/tasks/today',
+              onClick: () => router.push('/tasks/today'),
             },
           ]}
         />
