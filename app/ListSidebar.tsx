@@ -24,7 +24,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useOptimistic, useRef, useState, useTransition } from 'react';
 import { createList, deleteList, reorderLists, updateList, updateListColor } from './_lib/actions';
 import GripIcon from './_components/GripIcon';
-import NotificationSettings from './_components/NotificationSettings';
+import TasksSettings from './_components/TasksSettings';
 import { LIST_SWATCHES, listDotColor } from './_lib/colors';
 import { REORDER_AUTO_SCROLL, useReorderSensors } from './_lib/dndSensors';
 import { useIsMobile } from './_lib/useIsMobile';
@@ -242,7 +242,7 @@ export default function ListSidebar({ lists: initialLists, starredCount }: Props
       <div className={styles.header}>
         <span className={styles.heading}>My lists</span>
         <div className={styles.headerActions}>
-          <NotificationSettings />
+          <TasksSettings />
           <button
             type="button"
             className={styles.newBtn}

@@ -28,7 +28,7 @@ function now() {
   return Math.floor(Date.now() / 1000);
 }
 
-async function getContext() {
+export async function getContext() {
   const session = await sdk.auth.requireSession();
   const db = (await sdk.db.getClient()) as Db;
   return { session, db, userId: session.user.id, tenantId: session.user.tenantId };

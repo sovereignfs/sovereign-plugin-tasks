@@ -20,8 +20,13 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Db = BaseSQLiteDatabase<'async', any, any>;
 
-const PLUGIN_ID = 'fs.sovereign.tasks';
-const EXPORT_SCHEMA_VERSION = 1;
+// Exported alongside exportTasksData/importTasksData/isTasksExportData below
+// (TSK-31) — the single-file export/import in app/_lib/dataFile.ts calls
+// these directly with a locally-built context instead of the platform's
+// portability registry, and needs the same plugin id/schema version to
+// validate a file before handing it to importTasksData.
+export const PLUGIN_ID = 'fs.sovereign.tasks';
+export const EXPORT_SCHEMA_VERSION = 1;
 
 function now() {
   return Math.floor(Date.now() / 1000);
@@ -101,7 +106,7 @@ interface ExportNotificationPrefs {
   updatedAt: number;
 }
 
-interface TasksExportData {
+export interface TasksExportData {
   lists: ExportList[];
   userListPrefs: ExportUserListPrefs[];
   views: ExportView[];
@@ -110,7 +115,7 @@ interface TasksExportData {
   notificationPrefs: ExportNotificationPrefs | null;
 }
 
-async function exportTasksData(ctx: ExportContext): Promise<PluginExportSection> {
+export async function exportTasksData(ctx: ExportContext): Promise<PluginExportSection> {
   const db = (await sdk.db.getClient()) as Db;
   const { userId, tenantId } = ctx;
 
@@ -217,7 +222,7 @@ async function exportTasksData(ctx: ExportContext): Promise<PluginExportSection>
 
 // ---- Import ----
 
-function isTasksExportData(value: unknown): value is TasksExportData {
+export function isTasksExportData(value: unknown): value is TasksExportData {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<TasksExportData>;
   return (
@@ -228,7 +233,10 @@ function isTasksExportData(value: unknown): value is TasksExportData {
   );
 }
 
-async function importTasksData(section: PluginExportSection, ctx: ImportContext): Promise<void> {
+export async function importTasksData(
+  section: PluginExportSection,
+  ctx: ImportContext,
+): Promise<void> {
   if (section.schemaVersion !== EXPORT_SCHEMA_VERSION || !isTasksExportData(section.data)) {
     throw new Error('Tasks import section has an unrecognized shape.');
   }

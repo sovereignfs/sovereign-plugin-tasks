@@ -256,8 +256,9 @@ once-per-local-day **morning digest** (tasks due today + overdue, at the
 user's chosen `morning_time`) and a **due-time reminder** per task whose
 `due_time` arrives today. Everything is computed in the user's stored IANA
 timezone (`tasks_notification_prefs.timezone`, captured from the browser on
-every prefs save — see `NotificationSettings.tsx`, the bell in the list
-sidebar header). **Every send is gated behind a conditional-UPDATE claim**
+every prefs save — see `TasksSettings.tsx`'s Notifications section, opened
+via the Settings icon in the list sidebar header). **Every send is gated
+behind a conditional-UPDATE claim**
 (`last_digest_date` on the prefs row; `reminder_sent_at` on the task row)
 because the scheduler gives no delivery guarantees — restarts re-arm it and
 replicas tick independently. `setDueDate` clears `reminder_sent_at` so
@@ -516,6 +517,49 @@ so this page works on both shells with zero routing changes anywhere else.
   entry point (the footer's right icon now opens this instead) —
   `/tasks/search` still works, just isn't linked from the footer.
 
+## Single-file export/import (v0.16, TSK-31)
+
+A standalone counterpart to the account-level ZIP flow (v0.14, TSK-29
+above) — one plugin-local JSON file, reached from **Settings** (the gear
+icon that replaced the notifications-only bell in the list sidebar
+header — see `TasksSettings.tsx`) instead of Account → Export/Import my
+data.
+
+- **Zero duplicated row logic**: `app/_lib/portability.ts`'s
+  `exportTasksData`/`importTasksData` are exported and called directly with
+  a hand-built `{userId, tenantId, ...}` context instead of the one the
+  platform's portability registry normally supplies — both functions only
+  ever needed that plain shape, never anything registry-specific, so this
+  needed no changes to their own logic (or to `portability.test.ts`'s
+  existing coverage of them). `app/_lib/dataFile.ts` is the thin `'use
+  server'` wrapper; `app/_lib/exportFile.ts` holds the pure, unit-tested
+  file-shape validator and the local `remapId` implementation (a plain
+  `Map` + `randomUUID()`, reproducing the platform's per-import id-stability
+  contract with no other machinery) — split out because a `'use server'`
+  file's exports must all be async, which a synchronous validator can't be.
+- **Same envelope as the account-level ZIP, on purpose**: the downloaded
+  file is exactly a `PluginExportSection` (`{ pluginId, schemaVersion, data
+  }`) — the identical shape stored at `plugins/fs.sovereign.tasks/data.json`
+  inside an account export ZIP. A file pulled out of one is importable via
+  the other and vice versa; `validateExportFile` checks `pluginId` (rejects
+  a different plugin's export) and `schemaVersion` before touching
+  `isTasksExportData`'s existing shape guard.
+- **Additive, same contract as TSK-29's import** — never wipes or replaces
+  existing data; importing the same file twice duplicates every list/task
+  rather than erroring. Communicated via static copy next to the Import
+  button rather than a preview-then-confirm step: a client-side validation
+  pass wasn't worth adding just for a confirm dialog (`exportFile.ts`
+  transitively imports `portability.ts`, which pulls in `@sovereignfs/sdk`
+  and drizzle — server-only, not something to import into a Client
+  Component), and the account-level flow already established this same
+  additive-with-explanatory-copy convention.
+- **Download is a plain client-side Blob URL** (`URL.createObjectURL` + a
+  synthetic `<a download>` click) — no new API route. Import reads the
+  picked `File` via `file.text()` client-side, `JSON.parse`s it (a parse
+  failure is caught and toasted before any server round trip), then hands
+  the parsed value straight to `importTasksFromJson`, which does the real
+  validation server-side.
+
 ## Versioning
 
 This plugin follows its own semver, independent of the platform version:
@@ -524,8 +568,14 @@ This plugin follows its own semver, independent of the platform version:
 - `feat/` → minor (0.x.0)
 - Breaking change → major (x.0.0)
 
-Current version: **0.26.0** (bumped from whatever `manifest.json` had drifted to —
+Current version: **0.27.0** (bumped from whatever `manifest.json` had drifted to —
 this line has drifted from the real version before; check `manifest.json` first.
+`0.26.0` → `0.27.0` ships plugin-local single-file export/import (TSK-31,
+`feat/` → minor) — see the "Single-file export/import" section above for
+the full design; in one line, Settings (replacing the notifications-only
+bell in the list sidebar header) now also downloads/restores one JSON file,
+reusing `portability.ts`'s existing row logic directly rather than
+duplicating it.
 `0.25.1` → `0.26.0` ships Today's Agenda (TSK-30, `feat/` → minor) — see the
 "Today's Agenda" section above for the full design; in one line, a
 `SwipeStack`-based triage view at `/tasks/today` (Up=Done, Down=Cancel,
