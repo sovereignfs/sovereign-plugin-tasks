@@ -45,6 +45,7 @@ completing this milestone.
 | TSK-28 | Virtual "Starred" list — aggregates every starred task across lists in one pinned view (added ahead of phasing; builds on TSK-26) | ✅ |
 | TSK-29 | Account-level data portability — export/import (sv-RFC 0007) and deletion (sv-RFC 0033) via Account → Export/Import my data, no plugin-local UI (added ahead of phasing) | ✅ |
 | TSK-30 | Today's Agenda — swipeable triage view (mobile-first) over due-today/overdue/starred tasks (added ahead of phasing) | ✅ |
+| TSK-31 | Plugin-local single-file export/import — one JSON file, reached from Settings, reusing TSK-29's row logic directly (added ahead of phasing) | ✅ |
 
 Keyboard shortcuts (scoped to the task-list pane, skipped while typing in a
 field): `n` focuses the add-task input, `j`/`k` (or Up/Down) move a keyboard
@@ -171,6 +172,21 @@ icon, which this feature took over from Search (an accepted tradeoff —
 and from the due-reminders morning digest notification, which now deep-links
 here instead of bare `/tasks`. See `CLAUDE.md`'s "Today's Agenda" section
 for the full design.
+
+## Plugin-local single-file export/import (TSK-31)
+
+Shipped ahead of v1.0. Settings — the gear icon that replaced the
+notifications-only bell in the list sidebar header, now combining
+notification preferences with a Data section — can download every list and
+task as one JSON file, or restore from one. A standalone, single-file
+counterpart to TSK-29's account-level ZIP flow, sharing the exact same
+export shape (`portability.ts`'s `exportTasksData`/`importTasksData`,
+called directly with a hand-built context rather than through the platform's
+portability registry) so a file is interchangeable between the two: one
+taken out of an account-export ZIP imports here too, and vice versa. Import
+is additive, same contract as TSK-29 — never replaces or removes existing
+data. See `CLAUDE.md`'s "Single-file export/import" section for the full
+design.
 
 ## v1.0 — Polish and reference implementation
 

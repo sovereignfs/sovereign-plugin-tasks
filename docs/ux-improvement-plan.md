@@ -23,6 +23,7 @@ same surfaces in the same repo. Add new tasks as numbered sections; statuses:
 | 12  | Fix invisible carousel dots; investigate swipe instability + header load  | **platform** (`sovereignfs/sovereign`)                   | shipped ✅ (dots) + drag-vs-swipe conflict still open — see below |
 | 13  | Fix carousel auto-swiping back to the previous slide                      | **platform** (`sovereignfs/sovereign`)                   | shipped ✅, regression found + corrected — see below              |
 | 14  | Today's Agenda — swipeable triage view (`SwipeStack`)                     | sovereign-tasks                                          | shipped ✅                                                        |
+| 15  | Plugin-local single-file export/import + combined Settings screen         | sovereign-tasks                                          | shipped ✅                                                        |
 
 ---
 
@@ -1609,5 +1610,139 @@ exists for.
 7. `pnpm format:check && pnpm lint && pnpm typecheck && pnpm test`; version
    bump; draft PR.
 
-<!-- Add Task 15, … above this line as new numbered sections, and keep the
+## Task 15 — Plugin-local single-file export/import + combined Settings screen
+
+**Status:** shipped ✅ — implemented on `feat/tasks-settings-export-import`,
+assigned requirement id **TSK-31**.
+**Repo:** sovereign-tasks. Branch type: `feat/` (minor bump, `0.26.0` →
+`0.27.0`).
+
+### Problem
+
+TSK-29 (Task 5 above) wired Tasks into the platform's account-level
+Export/Import my data flow — deliberately "no plugin-local UI," a
+standalone in-plugin button was explicitly called out as a "plausible
+future add-on, not built here." That future ask arrived: a single-JSON-file
+export/import reachable from inside the plugin itself, without a trip to
+Account. Separately, the notifications bell in the list sidebar header (the
+same shared `ListSidebar.tsx` component on both mobile and desktop) was
+judged a good place to consolidate: replace it with a Settings icon that
+opens one screen covering both notification preferences and this new
+data flow, rather than adding a second icon next to it.
+
+### Current state (verified)
+
+- `app/_lib/portability.ts`'s `exportTasksData(ctx: ExportContext)` and
+  `importTasksData(section, ctx: ImportContext)` were previously
+  module-private, only ever invoked by the platform's portability registry
+  via `sdk.portability.provideExport/provideImport`. Checked their actual
+  parameter types (`packages/sdk/src/portability.ts` in the platform
+  monorepo): `ExportContext` is `{ userId, tenantId, options }` and
+  `ImportContext` is `{ userId, tenantId, remapId }` — both plain shapes
+  with nothing registry-specific baked in. Neither function reads
+  `ctx.options` today (Tasks has no file blobs to gate on
+  `options.includeFiles`), so a hand-built minimal context satisfies both
+  without any change to their own logic.
+- `portability.test.ts`'s existing round-trip coverage of these two
+  functions (export shape, tenant/owner scoping, import remap/cross-
+  reference rebuild, orphan-reference skip) already covers everything this
+  task reuses, unmodified.
+- `NotificationSettings.tsx` (bell trigger + `Dialog`) was the only UI
+  surface to extend — self-contained, its own module CSS, rendered once
+  from `ListSidebar.tsx`'s header on both breakpoints (no existing
+  mobile/desktop fork to preserve or break).
+- No `sdk.portability`-registered handler was touched — this task adds a
+  second, independent call path to the same row logic, not a change to the
+  first one.
+
+### Design decisions
+
+1. **Reuse the row logic directly, don't duplicate it.** Exported
+   `exportTasksData`, `importTasksData`, `isTasksExportData`,
+   `TasksExportData`, `PLUGIN_ID`, `EXPORT_SCHEMA_VERSION` from
+   `portability.ts` (additive — no existing export/behavior changed) and
+   called the two functions from a new call site with a locally-constructed
+   context instead of the registry-supplied one.
+2. **Same file shape as the account-level ZIP's per-plugin section, on
+   purpose.** The downloaded JSON is exactly a `PluginExportSection`
+   (`{ pluginId, schemaVersion, data }`) — byte-identical to what's stored
+   at `plugins/fs.sovereign.tasks/data.json` inside an account-export ZIP.
+   A file from one is importable via the other. Rejected: a bespoke,
+   Tasks-only file shape — no benefit, and loses that interchangeability.
+3. **`'use server'` files can only export async functions** — discovered
+   while writing the file-shape validator (a plain synchronous predicate).
+   Split it (and the local `remapId` implementation) into a new plain
+   module, `app/_lib/exportFile.ts` (no `'use server'`, no DB), imported by
+   the actual `'use server'` action file, `app/_lib/dataFile.ts`. Mirrors
+   the existing `agenda.ts`/`notify.ts` split from their own `'use server'`
+   callers (`actions.ts`/`due-reminders.ts`).
+4. **Import stays additive, communicated via copy, not a preview-then-
+   confirm dialog.** Same non-destructive contract as TSK-29's import
+   (never replaces/removes existing data; importing the same file twice
+   duplicates everything). A confirm-with-preview step would need
+   client-side validation first, but `exportFile.ts` transitively imports
+   `portability.ts` → `@sovereignfs/sdk` + drizzle-orm, which are
+   server-only and unsafe to pull into a Client Component bundle. Simpler
+   and consistent with precedent: static explanatory text next to the
+   Import button, then the server does the real validation.
+5. **Settings icon replaces the bell on both mobile and desktop** — decided
+   explicitly rather than assumed, since `ListSidebar.tsx`'s header is one
+   shared component with no existing viewport fork. Forking it here (bell
+   on desktop, gear on mobile) would be new, purpose-built inconsistency
+   for no real benefit; one Settings entry point everywhere was preferred.
+6. **Download is a plain client-side Blob URL**, no new API route — the
+   payload is at most a few thousand rows of JSON, nowhere near needing a
+   streamed response the way the account-level ZIP (`GET
+   /api/account/export`) does. Import reads the picked `File` via
+   `file.text()` + `JSON.parse` client-side (a parse failure is toasted
+   before any server round trip), then hands the parsed value to
+   `importTasksFromJson`, which does the authoritative validation.
+
+### Files
+
+| File                                                | Change                                                                                              |
+| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `app/_lib/portability.ts`                           | export `exportTasksData`, `importTasksData`, `isTasksExportData`, `TasksExportData`, `PLUGIN_ID`, `EXPORT_SCHEMA_VERSION` (additive; existing registered handlers unchanged) |
+| `app/_lib/actions.ts`                                | export `getContext` (already existed, was module-private)                                            |
+| `app/_lib/exportFile.ts` (new)                      | `validateExportFile` (pure, unit-tested), `createRemapId` (local id-stability map)                    |
+| `app/_lib/__tests__/exportFile.test.ts` (new)       | validation acceptance/rejection cases; `createRemapId` stability/independence                          |
+| `app/_lib/dataFile.ts` (new)                        | `'use server'` — `exportTasksAsJson()`, `importTasksFromJson(raw)`                                     |
+| `app/_components/NotificationSettings.tsx` → `TasksSettings.tsx` (renamed) | bell → Settings gear trigger; Dialog gains a "Data" section (Export/Import buttons + hidden file input) |
+| `app/_components/NotificationSettings.module.css` → `TasksSettings.module.css` (renamed) | `.bellBtn` → `.settingsBtn`; new `.section`/`.sectionHeading`/`.hiddenFileInput`                        |
+| `app/ListSidebar.tsx`                                | import/usage updated to `TasksSettings`                                                                |
+| `CLAUDE.md`, `SPEC.md`, `roadmap.md`                | TSK-31 requirement + design notes; "Current version" line                                              |
+| `manifest.json`                                     | `0.26.0` → `0.27.0`                                                                                     |
+
+No manifest permission change — `data:export`/`data:import` were already
+declared for TSK-29, and this path exercises the same underlying
+capabilities (`db:readWrite`, `auth:session`) directly rather than through
+`sdk.portability`, which never gates on a separate permission of its own.
+
+### Verification
+
+1. `pnpm dev`: open the Lists view (mobile and desktop) → the sidebar
+   header shows a Settings gear where the bell used to be; tapping it opens
+   one Dialog with Notifications above a Data section.
+2. Create a few lists/tasks/subtasks/a recurring series/starred items. Tap
+   Export → a `sovereign-tasks-export-<date>.json` file downloads; open it
+   and confirm it's a `{ pluginId: "fs.sovereign.tasks", schemaVersion: 1,
+   data: {...} }` envelope containing everything.
+3. Tap Import, pick that same file → a success toast reports the added
+   list/task counts, the sidebar refreshes with a second copy of everything
+   (new ids, additive — nothing pre-existing is touched or removed).
+4. Cross-compatibility: take a `plugins/fs.sovereign.tasks/data.json` out
+   of an account-level export ZIP (Account → Export my data) and import it
+   here directly → succeeds identically.
+5. Error cases: importing a random JSON file → "This file is not a valid
+   Sovereign Tasks export."; importing a non-JSON file → "That file is not
+   valid JSON."; importing a same-shaped export from a different plugin id
+   → "This file was exported from a different app, not Tasks."
+6. Regression: notification preferences (enable, morning time, Save) still
+   work exactly as before inside the same combined Dialog; existing
+   `portability.test.ts` round-trip tests still pass unmodified (confirming
+   the account-level Export/Import my data flow is untouched).
+7. `pnpm format:check && pnpm lint && pnpm typecheck && pnpm test`; version
+   bump; draft PR.
+
+<!-- Add Task 16, … above this line as new numbered sections, and keep the
      index table at the top in sync. -->

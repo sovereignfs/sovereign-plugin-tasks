@@ -172,6 +172,7 @@ selection surface. Do not call Console/admin user routes.
 | TSK-28 | A virtual "Starred" list, pinned first on the lists surface, aggregating every starred task across the user's lists in one view (sorted by due date). Not a real list — owns no `tasks_lists` row and no tasks; each task always remains in (and displays) its source list. No add-task, drag-reorder, rename/colour/delete, or bulk select in this view. Added ahead of phasing; builds on TSK-26. |
 | TSK-29 | Account-level data portability (sv-RFC 0007 export/import, sv-RFC 0033 deletion) — no plugin-local UI; reached from Account → Export/Import my data. Export includes owned lists, items, views, and prefs; import is additive and remaps every plugin-owned id; deletion removes everything the user owns. Added ahead of phasing. |
 | TSK-30 | **Today's Agenda** — a swipeable triage view (mobile-first) at `/tasks/today` over every top-level, incomplete task that's due today, overdue, or starred. Left = snooze to tomorrow; right = keep for today (bumps an overdue task's due date to today); up = done; down = cancel (delete). Reached from the mobile footer's right icon (replacing Search) and from the due-reminders morning digest notification. Added ahead of phasing. |
+| TSK-31 | **Plugin-local single-file export/import** — a standalone, one-JSON-file counterpart to TSK-29's account-level ZIP flow, reached from Settings (the gear icon that replaced the notifications-only bell in the list sidebar header). Same file shape as the account-level export's per-plugin section (interchangeable with it); import is additive, same contract as TSK-29. Added ahead of phasing. |
 
 ### v0.4 — Recurrence
 
@@ -386,6 +387,16 @@ grouping value rather than a literal FK — recurring-series ids too), skipping
 any row whose cross-reference isn't actually part of the export instead of
 hard-failing.
 
+### Single-file export/import (TSK-31, shipped)
+
+A plugin-local counterpart to the above: Settings (the gear icon that
+replaced the notifications-only bell in the list sidebar header) can
+download/restore this same export shape as one standalone JSON file, no
+Account trip needed. Reuses `exportTasksData`/`importTasksData` from
+`portability.ts` directly with a hand-built context, rather than
+duplicating their row logic — see `app/_lib/dataFile.ts`/`exportFile.ts`
+and `CLAUDE.md`'s "Single-file export/import" section.
+
 Deletion policy — v0.1's ownership model is single-owner only (v0.2
 collaboration is still blocked on `sdk.directory`), so this is simpler than a
 shared-list scheme would need: every list the user owns, and everything in
@@ -530,6 +541,7 @@ external plugin developers.
 
 | Version | Date     | Change                                                                              |
 | ------- | -------- | ----------------------------------------------------------------------------------- |
+| 0.8     | Sep 2026 | Plugin-local single-file export/import (TSK-31, added ahead of phasing) — Settings (replacing the notifications-only bell in the list sidebar header) can now download/restore the same export shape as TSK-29 as one standalone JSON file, reusing `portability.ts`'s row logic directly. |
 | 0.7     | Sep 2026 | Today's Agenda (TSK-30, added ahead of phasing) — a `SwipeStack`-based swipeable triage view at `/tasks/today` over due-today/overdue/starred tasks (snooze/keep/done/cancel), reached from the mobile footer's right icon (replacing Search) and the due-reminders morning digest notification. |
 | 0.6     | Jul 2026 | Recurrence (TSK-22–25) shipped ahead of the roadmap's own ordering — daily/weekly/monthly/yearly/every-N/specific-weekdays patterns (matching Google Tasks' picker; "nth day of month" deferred), generate-next-instance on completion, a three-way edit-scope prompt (this/future/all) gated to title/notes/due-date/recurrence-rule, and a human-readable pattern shown in both the detail pane and a row icon. |
 | 0.5     | Jul 2026 | Detail-pane polish: custom `CalendarGrid` due-date picker (replacing the native date input), a List field to move a task to a different list (TSK-27), boxed subtask cards with a count label, delete-task confirmation styling. Sidebar drag-reorder for lists, floating (non-reserved-gutter) drag handles replacing `DragHandleRow` in both the sidebar and task rows, and a fix for `@dnd-kit`'s `DndContext` SSR/hydration ID mismatch (explicit `id` prop on both contexts). |
